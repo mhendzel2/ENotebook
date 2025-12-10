@@ -5,7 +5,8 @@ export type Modality =
   | 'electron_microscopy'
   | 'biophysical'
   | 'molecular_biology'
-  | 'biochemistry';
+  | 'biochemistry'
+  | 'flow_cytometry';
 
 export interface User {
   id: string;
@@ -105,5 +106,6 @@ export const MODALITIES: Modality[] = [
   'electron_microscopy',
   'biophysical',
   'molecular_biology',
-  'biochemistry'
+  'biochemistry',
+  'flow_cytometry'
 ];

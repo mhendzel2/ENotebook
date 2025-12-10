@@ -130,4 +130,5 @@ enum Modality {
   biophysical
   molecular_biology
   biochemistry
+  flow_cytometry
 }
