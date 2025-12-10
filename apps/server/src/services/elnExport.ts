@@ -619,6 +619,12 @@ export function createElnExportRoutes(prisma: PrismaClient): Router {
   router.get('/export/pdf/:experimentId', async (req: Request, res: Response) => {
     const { experimentId } = req.params;
 
+    // Validate experimentId is a valid UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!experimentId || !uuidRegex.test(experimentId)) {
+      return res.status(400).json({ error: 'Invalid experiment ID format' });
+    }
+
     try {
       const buffer = await exportService.generatePdf(experimentId);
 
