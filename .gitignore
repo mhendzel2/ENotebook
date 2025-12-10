@@ -5,9 +5,18 @@ build
 *.db
 *.db-journal
 *.sqlite
-
 *.sqlite3
 *.log
 .DS_Store
 coverage
 .vscode
+
+# Local data directories
+data/
+apps/server/data/
+pending-sync.json
+device-id
+config.local.json
+
+# Backup files
+*.bak
