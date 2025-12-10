@@ -24,6 +24,10 @@ import { WorkflowEngine, createWorkflowRoutes } from './services/workflows.js';
 import { LabelService, createLabelRoutes } from './services/labels.js';
 import { DashboardService, createDashboardRoutes } from './services/dashboard.js';
 import { SamplePoolService, createPoolRoutes } from './services/pools.js';
+// Developer & Integration tools
+import { createGraphQLRoutes } from './services/graphql.js';
+import { createMobileRoutes } from './services/mobile.js';
+import { createMLAnalyticsRoutes } from './services/mlAnalytics.js';
 
 const prisma = new PrismaClient();
 
@@ -141,6 +145,15 @@ app.use(createDashboardRoutes(prisma, dashboardService));
 
 // ==================== SAMPLE POOLING ====================
 app.use(createPoolRoutes(prisma, poolService));
+
+// ==================== GRAPHQL API ====================
+app.use('/api/graphql', createGraphQLRoutes(prisma));
+
+// ==================== MOBILE COMPANION API ====================
+app.use('/api/mobile', createMobileRoutes(prisma));
+
+// ==================== ML ANALYTICS ====================
+app.use('/api/ml', createMLAnalyticsRoutes());
 
 const methodSchema = z.object({
   title: z.string().min(1),

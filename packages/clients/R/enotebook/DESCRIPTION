@@ -1,0 +1,27 @@
+Package: enotebook
+Title: R Client for ENotebook Electronic Lab Notebook
+Version: 0.1.0
+Authors@R: 
+    person("ENotebook", "Team", , "support@enotebook.local", role = c("aut", "cre"))
+Description: Provides tidyverse-friendly functions for interacting with the
+    ENotebook Electronic Lab Notebook API. Scientists can programmatically
+    extract experimental data, perform analysis in R, and push results back
+    to the ELN. Supports both REST and GraphQL APIs.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.2.3
+Imports:
+    httr (>= 1.4.0),
+    jsonlite (>= 1.8.0),
+    tibble (>= 3.0.0),
+    dplyr (>= 1.0.0)
+Suggests:
+    testthat (>= 3.0.0),
+    ggplot2,
+    knitr,
+    rmarkdown
+Config/testthat/edition: 3
+VignetteBuilder: knitr
+URL: https://github.com/enotebook/enotebook-r
+BugReports: https://github.com/enotebook/enotebook-r/issues

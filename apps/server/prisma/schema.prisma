@@ -86,6 +86,7 @@ model Experiment {
   comments       Comment[]
   stockUsages    ExperimentStock[]
   poolUsages     PoolUsage[]
+  quickEntries   QuickEntry[]
 }
 
 model ExperimentRevision {
@@ -451,6 +452,51 @@ model PoolUsage {
   usedAt         DateTime @default(now())
   usedBy         String
   notes          String?
+}
+
+// ==================== MOBILE COMPANION MODELS ====================
+
+model MobileDevice {
+  id           String   @id @default(uuid())
+  deviceId     String   @unique // Hardware/app device identifier
+  name         String?
+  platform     String   // ios, android, etc.
+  userId       String
+  pushToken    String?  // For push notifications
+  lastSyncAt   DateTime?
+  lastActiveAt DateTime @default(now())
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  
+  quickEntries QuickEntry[]
+  bookings     EquipmentBooking[]
+}
+
+model QuickEntry {
+  id           String   @id @default(uuid())
+  deviceId     String
+  device       MobileDevice @relation(fields: [deviceId], references: [id])
+  type         String   // measurement, note, observation, photo
+  content      String   // JSON content
+  location     String?  // JSON with lat/lng
+  experimentId String?
+  experiment   Experiment? @relation(fields: [experimentId], references: [id])
+  syncStatus   String   @default("pending") // pending, synced, conflict
+  createdAt    DateTime @default(now())
+  syncedAt     DateTime?
+}
+
+model EquipmentBooking {
+  id           String   @id @default(uuid())
+  equipmentId  String
+  userId       String
+  deviceId     String?
+  device       MobileDevice? @relation(fields: [deviceId], references: [id])
+  startTime    DateTime
+  endTime      DateTime
+  purpose      String?
+  status       String   @default("confirmed") // confirmed, cancelled, completed
+  createdAt    DateTime @default(now())
 }
 
 // Enums removed for SQLite compatibility

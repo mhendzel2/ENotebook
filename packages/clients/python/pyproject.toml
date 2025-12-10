@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "enotebook"
+version = "0.1.0"
+description = "Python client library for ENotebook Electronic Lab Notebook"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "ENotebook Team", email = "support@enotebook.local"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+keywords = ["eln", "laboratory", "notebook", "science", "research"]
+requires-python = ">=3.8"
+
+[project.optional-dependencies]
+pandas = ["pandas>=1.0.0"]
+full = ["pandas>=1.0.0", "numpy>=1.20.0", "scipy>=1.7.0"]
+dev = ["pytest", "pytest-cov", "black", "mypy"]
+
+[project.urls]
+Homepage = "https://github.com/enotebook/enotebook"
+Documentation = "https://enotebook.readthedocs.io"
+Repository = "https://github.com/enotebook/enotebook"
+
+[tool.setuptools]
+py-modules = ["enotebook"]
