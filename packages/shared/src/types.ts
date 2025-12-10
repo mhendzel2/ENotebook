@@ -8,6 +8,28 @@ export type Modality =
   | 'biochemistry'
   | 'flow_cytometry';
 
+export type ExperimentStatus = 'draft' | 'in_progress' | 'completed' | 'signed';
+
+export type InventoryCategory = 
+  | 'reagent' 
+  | 'plasmid' 
+  | 'antibody' 
+  | 'primer' 
+  | 'cell_line' 
+  | 'sample' 
+  | 'consumable';
+
+export type StockStatus = 'available' | 'low' | 'empty' | 'expired' | 'disposed';
+
+export type SignatureType = 'author' | 'witness' | 'reviewer' | 'approver';
+
+export type NotificationType = 
+  | 'comment' 
+  | 'mention' 
+  | 'assignment' 
+  | 'signature_request' 
+  | 'stock_low';
+
 export interface User {
   id: string;
   name: string;
@@ -35,6 +57,7 @@ export interface Method {
   version: number;
   updatedAt: string;
   isPublic: boolean;
+  parentMethodId?: string; // For versioning
 }
 
 export interface Experiment {
@@ -52,6 +75,7 @@ export interface Experiment {
   createdAt: string;
   updatedAt: string;
   version: number;
+  status: ExperimentStatus;
 }
 
 export interface Attachment {
@@ -77,10 +101,13 @@ export interface SyncState {
 export interface ChangeLogEntry {
   id: string;
   deviceId?: string;
-  entityType: 'users' | 'methods' | 'experiments' | 'attachments';
+  entityType: 'users' | 'methods' | 'experiments' | 'attachments' | 'inventory' | 'stock';
   entityId: string;
   operation: 'insert' | 'update' | 'delete';
   version?: number;
+  oldValue?: unknown;
+  newValue?: unknown;
+  fieldName?: string;
   createdAt: string;
 }
 
@@ -101,6 +128,98 @@ export interface Conflict<T> {
   fieldConflicts?: string[];
 }
 
+// ==================== INVENTORY TYPES ====================
+
+export interface Location {
+  id: string;
+  name: string;
+  description?: string;
+  parentId?: string;
+  temperature?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InventoryItem {
+  id: string;
+  name: string;
+  description?: string;
+  category: InventoryCategory;
+  catalogNumber?: string;
+  manufacturer?: string;
+  supplier?: string;
+  unit?: string;
+  properties?: Record<string, unknown>;
+  safetyInfo?: string;
+  storageConditions?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Stock {
+  id: string;
+  itemId: string;
+  locationId?: string;
+  lotNumber?: string;
+  quantity: number;
+  initialQuantity: number;
+  expirationDate?: string;
+  receivedDate: string;
+  barcode?: string;
+  status: StockStatus;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExperimentStock {
+  id: string;
+  experimentId: string;
+  stockId: string;
+  quantityUsed: number;
+  usedAt: string;
+  notes?: string;
+}
+
+// ==================== COMPLIANCE TYPES ====================
+
+export interface Signature {
+  id: string;
+  userId: string;
+  signatureType: SignatureType;
+  meaning?: string;
+  timestamp: string;
+  ipAddress?: string;
+  experimentId?: string;
+  methodId?: string;
+  contentHash: string;
+}
+
+// ==================== COLLABORATION TYPES ====================
+
+export interface Comment {
+  id: string;
+  content: string;
+  authorId: string;
+  createdAt: string;
+  updatedAt: string;
+  experimentId?: string;
+  methodId?: string;
+  parentId?: string;
+}
+
+export interface Notification {
+  id: string;
+  userId: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  entityType?: string;
+  entityId?: string;
+  read: boolean;
+  createdAt: string;
+}
+
 export const MODALITIES: Modality[] = [
   'fluorescence',
   'electron_microscopy',
@@ -108,4 +227,36 @@ export const MODALITIES: Modality[] = [
   'molecular_biology',
   'biochemistry',
   'flow_cytometry'
+];
+
+export const INVENTORY_CATEGORIES: InventoryCategory[] = [
+  'reagent',
+  'plasmid',
+  'antibody',
+  'primer',
+  'cell_line',
+  'sample',
+  'consumable'
+];
+
+export const STOCK_STATUSES: StockStatus[] = [
+  'available',
+  'low',
+  'empty',
+  'expired',
+  'disposed'
+];
+
+export const EXPERIMENT_STATUSES: ExperimentStatus[] = [
+  'draft',
+  'in_progress',
+  'completed',
+  'signed'
+];
+
+export const SIGNATURE_TYPES: SignatureType[] = [
+  'author',
+  'witness',
+  'reviewer',
+  'approver'
 ];

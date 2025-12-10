@@ -20,6 +20,9 @@ model User {
   methods     Method[] @relation("MethodCreator")
   experiments Experiment[]
   revisions   ExperimentRevision[]
+  signatures  Signature[]
+  comments    Comment[]
+  notifications Notification[]
 }
 
 model Device {
@@ -34,20 +37,25 @@ model Device {
 }
 
 model Method {
-  id          String   @id @default(uuid())
-  title       String
-  category    String?
-  steps       String   // SQLite does not support Json
-  reagents    String?  // SQLite does not support Json
-  attachments String?  // SQLite does not support Json
-  createdBy   String?
-  creator     User?    @relation("MethodCreator", fields: [createdBy], references: [id])
-  version     Int      @default(1)
-  updatedAt   DateTime @updatedAt
-  isPublic    Boolean  @default(true)
+  id             String   @id @default(uuid())
+  title          String
+  category       String?
+  steps          String   // SQLite does not support Json
+  reagents       String?  // SQLite does not support Json
+  attachments    String?  // SQLite does not support Json
+  createdBy      String?
+  creator        User?    @relation("MethodCreator", fields: [createdBy], references: [id])
+  version        Int      @default(1)
+  updatedAt      DateTime @updatedAt
+  isPublic       Boolean  @default(true)
+  parentMethodId String?  // For versioning - links to the original method
+  parentMethod   Method?  @relation("MethodVersions", fields: [parentMethodId], references: [id])
+  childVersions  Method[] @relation("MethodVersions")
 
-  experiments Experiment[] @relation("ExperimentProtocol")
+  experiments    Experiment[] @relation("ExperimentProtocol")
   attachmentsRef Attachment[]
+  signatures     Signature[]
+  comments       Comment[]
 }
 
 model Experiment {
@@ -65,12 +73,16 @@ model Experiment {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   version        Int      @default(1)
+  status         String   @default("draft") // draft, in_progress, completed, signed
 
   user   User   @relation(fields: [userId], references: [id])
   userId String
 
-  revisions   ExperimentRevision[]
-  attachments Attachment[]
+  revisions      ExperimentRevision[]
+  attachments    Attachment[]
+  signatures     Signature[]
+  comments       Comment[]
+  stockUsages    ExperimentStock[]
 }
 
 model ExperimentRevision {
@@ -81,6 +93,7 @@ model ExperimentRevision {
   author       User?    @relation(fields: [authorId], references: [id])
   authorId     String?
   notes        String?
+  snapshot     String?  // JSON snapshot of the experiment state at this version
   createdAt    DateTime @default(now())
 }
 
@@ -117,7 +130,132 @@ model ChangeLog {
   entityId   String
   operation  String
   version    Int?
+  oldValue   String?  // JSON snapshot of old values
+  newValue   String?  // JSON snapshot of new values
+  fieldName  String?  // Specific field that was changed
   createdAt  DateTime @default(now())
+}
+
+// ==================== INVENTORY MANAGEMENT ====================
+
+model Location {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  parentId    String?  // For hierarchical locations (building > room > freezer > shelf)
+  parent      Location?  @relation("LocationHierarchy", fields: [parentId], references: [id])
+  children    Location[] @relation("LocationHierarchy")
+  temperature String?  // e.g., "room_temp", "-20C", "-80C", "4C"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  stocks      Stock[]
+}
+
+model InventoryItem {
+  id             String   @id @default(uuid())
+  name           String
+  description    String?
+  category       String   // reagent, plasmid, antibody, primer, cell_line, sample, consumable
+  catalogNumber  String?
+  manufacturer   String?
+  supplier       String?
+  unit           String?  // e.g., "ml", "mg", "units", "vials"
+  properties     String?  // JSON for custom properties (concentration, MW, etc.)
+  safetyInfo     String?  // Hazard information, handling instructions
+  storageConditions String? // Storage requirements
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  stocks         Stock[]
+}
+
+model Stock {
+  id              String   @id @default(uuid())
+  item            InventoryItem @relation(fields: [itemId], references: [id])
+  itemId          String
+  location        Location? @relation(fields: [locationId], references: [id])
+  locationId      String?
+  lotNumber       String?
+  quantity        Float
+  initialQuantity Float
+  expirationDate  DateTime?
+  receivedDate    DateTime @default(now())
+  barcode         String?  @unique
+  status          String   @default("available") // available, low, empty, expired, disposed
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  experimentUsages ExperimentStock[]
+}
+
+model ExperimentStock {
+  id           String   @id @default(uuid())
+  experiment   Experiment @relation(fields: [experimentId], references: [id])
+  experimentId String
+  stock        Stock @relation(fields: [stockId], references: [id])
+  stockId      String
+  quantityUsed Float
+  usedAt       DateTime @default(now())
+  notes        String?
+}
+
+// ==================== COMPLIANCE & SIGNATURES ====================
+
+model Signature {
+  id           String   @id @default(uuid())
+  user         User     @relation(fields: [userId], references: [id])
+  userId       String
+  signatureType String  // author, witness, reviewer, approver
+  meaning      String?  // e.g., "I certify this data is accurate"
+  timestamp    DateTime @default(now())
+  ipAddress    String?
+  userAgent    String?
+  
+  // Polymorphic relation - only one should be set
+  experiment   Experiment? @relation(fields: [experimentId], references: [id])
+  experimentId String?
+  method       Method? @relation(fields: [methodId], references: [id])
+  methodId     String?
+  
+  // Hash of the signed content for integrity verification
+  contentHash  String
+}
+
+// ==================== COLLABORATION ====================
+
+model Comment {
+  id           String   @id @default(uuid())
+  content      String
+  author       User     @relation(fields: [authorId], references: [id])
+  authorId     String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  // Polymorphic relation - only one should be set
+  experiment   Experiment? @relation(fields: [experimentId], references: [id])
+  experimentId String?
+  method       Method? @relation(fields: [methodId], references: [id])
+  methodId     String?
+  
+  // For threaded comments
+  parentId     String?
+  parent       Comment?  @relation("CommentThread", fields: [parentId], references: [id])
+  replies      Comment[] @relation("CommentThread")
+}
+
+model Notification {
+  id           String   @id @default(uuid())
+  user         User     @relation(fields: [userId], references: [id])
+  userId       String
+  type         String   // comment, mention, assignment, signature_request, stock_low
+  title        String
+  message      String
+  entityType   String?  // experiment, method, stock
+  entityId     String?
+  read         Boolean  @default(false)
+  createdAt    DateTime @default(now())
 }
 
 // Enums removed for SQLite compatibility
