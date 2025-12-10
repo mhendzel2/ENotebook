@@ -49,7 +49,14 @@ const methodSchema = z.object({
 app.get('/methods', async (_req, res) => {
   try {
     const methods = await prisma.method.findMany();
-    res.json(methods);
+    // Parse JSON fields
+    const parsedMethods = methods.map(m => ({
+      ...m,
+      steps: JSON.parse(m.steps),
+      reagents: m.reagents ? JSON.parse(m.reagents) : undefined,
+      attachments: m.attachments ? JSON.parse(m.attachments) : undefined
+    }));
+    res.json(parsedMethods);
   } catch (error) {
     res.status(500).json({ error: 'Database error' });
   }
@@ -63,14 +70,23 @@ app.post('/methods', async (req, res) => {
   const user = (req as any).user as User;
   
   try {
+    const { steps, reagents, attachments, ...rest } = parse.data;
     const method = await prisma.method.create({
       data: {
         createdBy: user.id,
         version: 1,
-        ...parse.data
+        ...rest,
+        steps: JSON.stringify(steps),
+        reagents: reagents ? JSON.stringify(reagents) : undefined,
+        attachments: attachments ? JSON.stringify(attachments) : undefined
       }
     });
-    res.status(201).json(method);
+    res.status(201).json({
+      ...method,
+      steps: JSON.parse(method.steps),
+      reagents: method.reagents ? JSON.parse(method.reagents) : undefined,
+      attachments: method.attachments ? JSON.parse(method.attachments) : undefined
+    });
   } catch (error) {
     res.status(500).json({ error: 'Failed to save method' });
   }
@@ -94,7 +110,14 @@ app.get('/experiments', async (req, res) => {
   try {
     const where = user.role === 'manager' ? {} : { userId: user.id };
     const data = await prisma.experiment.findMany({ where });
-    res.json(data);
+    // Parse JSON fields
+    const parsedData = data.map(e => ({
+      ...e,
+      params: e.params ? JSON.parse(e.params) : undefined,
+      observations: e.observations ? JSON.parse(e.observations) : undefined,
+      tags: e.tags ? JSON.parse(e.tags) : []
+    }));
+    res.json(parsedData);
   } catch (error) {
     res.status(500).json({ error: 'Database error' });
   }
@@ -110,14 +133,23 @@ app.post('/experiments', async (req, res) => {
   }
 
   try {
+    const { params, observations, tags, ...rest } = parse.data;
     const experiment = await prisma.experiment.create({
       data: {
         userId: user.id,
         version: 1,
-        ...parse.data
+        ...rest,
+        params: params ? JSON.stringify(params) : undefined,
+        observations: observations ? JSON.stringify(observations) : undefined,
+        tags: tags ? JSON.stringify(tags) : JSON.stringify([])
       }
     });
-    res.status(201).json(experiment);
+    res.status(201).json({
+      ...experiment,
+      params: experiment.params ? JSON.parse(experiment.params) : undefined,
+      observations: experiment.observations ? JSON.parse(experiment.observations) : undefined,
+      tags: experiment.tags ? JSON.parse(experiment.tags) : []
+    });
   } catch (error) {
     res.status(500).json({ error: 'Failed to save experiment' });
   }
@@ -154,17 +186,25 @@ app.post('/sync/push', async (req, res) => {
       // Handle Experiments
       for (const incExp of experiments) {
         const existing = await tx.experiment.findUnique({ where: { id: incExp.id } });
+        
+        const { params, observations, tags, ...rest } = incExp;
+        const dataToSave = {
+          ...rest,
+          params: params ? JSON.stringify(params) : undefined,
+          observations: observations ? JSON.stringify(observations) : undefined,
+          tags: tags ? JSON.stringify(tags) : JSON.stringify([])
+        };
 
         if (!existing) {
           // It's new, insert it
-          await tx.experiment.create({ data: incExp });
+          await tx.experiment.create({ data: dataToSave });
           applied.push({ id: incExp.id, status: 'created' });
         } else {
           // Conflict Detection: simple version check
           if (incExp.version > existing.version) {
             await tx.experiment.update({
               where: { id: incExp.id },
-              data: incExp
+              data: dataToSave
             });
             applied.push({ id: incExp.id, status: 'updated' });
           } else if (incExp.version < existing.version) {
@@ -178,17 +218,25 @@ app.post('/sync/push', async (req, res) => {
       // Handle Methods
       for (const incMethod of methods) {
         const existing = await tx.method.findUnique({ where: { id: incMethod.id } });
+        
+        const { steps, reagents, attachments, ...rest } = incMethod;
+        const dataToSave = {
+          ...rest,
+          steps: JSON.stringify(steps),
+          reagents: reagents ? JSON.stringify(reagents) : undefined,
+          attachments: attachments ? JSON.stringify(attachments) : undefined
+        };
 
         if (!existing) {
           // It's new, insert it
-          await tx.method.create({ data: incMethod });
+          await tx.method.create({ data: dataToSave });
           applied.push({ id: incMethod.id, status: 'created' });
         } else {
           // Conflict Detection: simple version check
           if (incMethod.version > existing.version) {
             await tx.method.update({
               where: { id: incMethod.id },
-              data: incMethod
+              data: dataToSave
             });
             applied.push({ id: incMethod.id, status: 'updated' });
           } else if (incMethod.version < existing.version) {
@@ -211,7 +259,22 @@ app.get('/sync/pull', async (_req, res) => {
   try {
     const methods = await prisma.method.findMany();
     const experiments = await prisma.experiment.findMany();
-    res.json({ methods, experiments });
+    
+    const parsedMethods = methods.map(m => ({
+      ...m,
+      steps: JSON.parse(m.steps),
+      reagents: m.reagents ? JSON.parse(m.reagents) : undefined,
+      attachments: m.attachments ? JSON.parse(m.attachments) : undefined
+    }));
+
+    const parsedExperiments = experiments.map(e => ({
+      ...e,
+      params: e.params ? JSON.parse(e.params) : undefined,
+      observations: e.observations ? JSON.parse(e.observations) : undefined,
+      tags: e.tags ? JSON.parse(e.tags) : []
+    }));
+
+    res.json({ methods: parsedMethods, experiments: parsedExperiments });
   } catch (error) {
     res.status(500).json({ error: 'Database error' });
   }
