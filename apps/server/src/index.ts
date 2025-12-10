@@ -11,13 +11,13 @@ import {
   Experiment, Method, User, Role, 
   MODALITIES, INVENTORY_CATEGORIES, STOCK_STATUSES, EXPERIMENT_STATUSES, SIGNATURE_TYPES 
 } from '@eln/shared';
-import { apiKeyRoutes, apiKeyAuth, scopeRequired, Scope } from './middleware/apiKey';
-import { createExportRoutes } from './routes/export';
-import { requirePermission, requireAllPermissions } from './middleware/permissions';
-import { createSignatureRoutes, SignatureService } from './services/signatures';
-import { createAuditRoutes, AuditTrailService } from './services/auditTrail';
-import { createElnExportRoutes } from './services/elnExport';
-import { CollaborationManager } from './services/websocket';
+import { createApiKeyRoutes, apiKeyAuth, requirePermission as apiKeyRequirePermission } from './middleware/apiKey.js';
+import { createExportRoutes } from './routes/export.js';
+import { requirePermission, requireAllPermissions } from './middleware/permissions.js';
+import { createSignatureRoutes, SignatureService } from './services/signatures.js';
+import { createAuditRoutes, AuditTrailService } from './services/auditTrail.js';
+import { createElnExportRoutes } from './services/elnExport.js';
+import { CollaborationManager } from './services/websocket.js';
 
 const prisma = new PrismaClient();
 
@@ -101,7 +101,7 @@ app.get('/health', (_req, res) => {
 });
 
 // ==================== API KEY MANAGEMENT ====================
-app.use(apiKeyRoutes(prisma));
+app.use(createApiKeyRoutes(prisma));
 
 // ==================== DATA EXPORT ====================
 app.use(createExportRoutes(prisma));

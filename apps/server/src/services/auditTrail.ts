@@ -572,6 +572,3 @@ export function createAuditRoutes(prisma: PrismaClient): Router {
 
   return router;
 }
-
-export { AuditTrailService };
-export default AuditTrailService;
