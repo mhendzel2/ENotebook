@@ -1124,9 +1124,19 @@ export function createGraphQLRoutes(prisma: PrismaClient) {
   router.post('/api/graphql', async (req, res) => {
     const { query, variables, operationName } = req.body;
 
-    if (!query) {
-      return res.status(400).json({ error: 'Query is required' });
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({ error: 'Query must be a string' });
     }
+
+    // Basic query length validation to prevent DoS
+    if (query.length > 10000) {
+      return res.status(400).json({ error: 'Query too large' });
+    }
+
+    // Prevent introspection in production (optional security hardening)
+    // if (process.env.NODE_ENV === 'production' && query.includes('__schema')) {
+    //   return res.status(403).json({ error: 'Introspection disabled' });
+    // }
 
     const context = {
       prisma,
