@@ -60,20 +60,21 @@ export class MobileService {
    */
   async registerDevice(
     userId: string,
-    deviceName: string,
+    deviceId: string,
     platform: 'ios' | 'android' | 'web',
-    pushToken?: string
+    pushToken?: string,
+    name?: string
   ): Promise<MobileDevice> {
     // Check if device already registered
     const existing = await this.prisma.mobileDevice.findFirst({
-      where: { userId, deviceName, platform },
+      where: { userId, deviceId, platform },
     });
 
     if (existing) {
       // Update push token
       const updated = await this.prisma.mobileDevice.update({
         where: { id: existing.id },
-        data: { pushToken, updatedAt: new Date() },
+        data: { pushToken, lastActiveAt: new Date() },
       });
       return this.mapDevice(updated);
     }
@@ -81,7 +82,8 @@ export class MobileService {
     const device = await this.prisma.mobileDevice.create({
       data: {
         userId,
-        deviceName,
+        deviceId,
+        name,
         platform,
         pushToken,
       },
@@ -117,14 +119,14 @@ export class MobileService {
     type: QuickEntry['type'],
     content: unknown,
     deviceId: string,
-    metadata?: Record<string, unknown>
+    location?: { lat: number; lng: number }
   ): Promise<QuickEntry> {
     const entry = await this.prisma.quickEntry.create({
       data: {
         experimentId,
         type,
         content: JSON.stringify(content),
-        metadata: metadata ? JSON.stringify(metadata) : undefined,
+        location: location ? JSON.stringify(location) : null,
         deviceId,
         syncStatus: 'pending',
       },
@@ -157,7 +159,7 @@ export class MobileService {
           where: { id: entryId },
         });
 
-        if (!entry) continue;
+        if (!entry || !entry.experimentId) continue;
 
         // Get experiment
         const experiment = await this.prisma.experiment.findUnique({
@@ -526,7 +528,8 @@ export class MobileService {
 // ==================== API ROUTES ====================
 
 const deviceSchema = z.object({
-  deviceName: z.string().min(1),
+  deviceId: z.string().min(1),
+  name: z.string().optional(),
   platform: z.enum(['ios', 'android', 'web']),
   pushToken: z.string().optional(),
 });
@@ -535,7 +538,10 @@ const quickEntrySchema = z.object({
   experimentId: z.string(),
   type: z.enum(['observation', 'note', 'photo', 'voice', 'measurement']),
   content: z.any(),
-  metadata: z.record(z.unknown()).optional(),
+  location: z.object({
+    lat: z.number(),
+    lng: z.number(),
+  }).optional(),
 });
 
 const bookingSchema = z.object({
@@ -558,14 +564,15 @@ export function createMobileRoutes(prisma: PrismaClient, mobileService: MobileSe
     }
 
     const user = (req as any).user;
-    const { deviceName, platform, pushToken } = parse.data;
+    const { deviceId, name, platform, pushToken } = parse.data;
 
     try {
       const device = await mobileService.registerDevice(
         user.id,
-        deviceName,
+        deviceId,
         platform,
-        pushToken
+        pushToken,
+        name
       );
       res.status(201).json(device);
     } catch (error) {
@@ -612,7 +619,7 @@ export function createMobileRoutes(prisma: PrismaClient, mobileService: MobileSe
         parse.data.type,
         parse.data.content,
         deviceId,
-        parse.data.metadata
+        parse.data.location
       );
       res.status(201).json(entry);
     } catch (error) {
@@ -656,7 +663,8 @@ export function createMobileRoutes(prisma: PrismaClient, mobileService: MobileSe
   // Lookup by barcode
   router.get('/api/mobile/scan/:barcode', async (req, res) => {
     try {
-      const result = await mobileService.lookupByBarcode(req.params.barcode);
+      const user = (req as any).user;
+      const result = await mobileService.lookupByBarcode(req.params.barcode, user.id);
       if (!result) {
         return res.status(404).json({ error: 'Entity not found' });
       }

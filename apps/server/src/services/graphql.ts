@@ -12,6 +12,8 @@
  * - Authentication integration
  */
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { 
@@ -31,7 +33,7 @@ import {
 
 // Type definitions for resolvers
 type ResolverContext = { prisma: PrismaClient; user: { id: string; role: string } | null };
-type ResolverFn = (parent: unknown, args: Record<string, unknown>, context: ResolverContext, info?: GraphQLResolveInfo) => unknown;
+type ResolverFn = (parent: any, args: any, context: ResolverContext, info?: GraphQLResolveInfo) => any;
 
 // ==================== ENUM TYPES ====================
 
