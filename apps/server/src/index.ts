@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import crypto from 'crypto';
+import http from 'http';
 import { z } from 'zod';
 import { v4 as uuid } from 'uuid';
 import { PrismaClient } from '@prisma/client';
@@ -12,10 +13,24 @@ import {
 } from '@eln/shared';
 import { apiKeyRoutes, apiKeyAuth, scopeRequired, Scope } from './middleware/apiKey';
 import { createExportRoutes } from './routes/export';
+import { requirePermission, requireAllPermissions } from './middleware/permissions';
+import { createSignatureRoutes, SignatureService } from './services/signatures';
+import { createAuditRoutes, AuditTrailService } from './services/auditTrail';
+import { createElnExportRoutes } from './services/elnExport';
+import { CollaborationManager } from './services/websocket';
 
 const prisma = new PrismaClient();
 
 const app = express();
+const server = http.createServer(app);
+
+// Initialize WebSocket collaboration
+const collaboration = new CollaborationManager(server, prisma);
+
+// Initialize services
+const auditService = new AuditTrailService(prisma);
+const signatureService = new SignatureService(prisma);
+
 app.use(express.json({ limit: '10mb' }));
 app.use(cors());
 app.use(helmet());
@@ -82,7 +97,7 @@ app.use(async (req, res, next) => {
 });
 
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', time: new Date().toISOString() });
+  res.json({ status: 'ok', time: new Date().toISOString(), websocket: true });
 });
 
 // ==================== API KEY MANAGEMENT ====================
@@ -90,6 +105,15 @@ app.use(apiKeyRoutes(prisma));
 
 // ==================== DATA EXPORT ====================
 app.use(createExportRoutes(prisma));
+
+// ==================== ELECTRONIC SIGNATURES ====================
+app.use(createSignatureRoutes(prisma));
+
+// ==================== AUDIT TRAIL ====================
+app.use(createAuditRoutes(prisma));
+
+// ==================== ELN EXPORT (RO-CRATE/.eln) ====================
+app.use(createElnExportRoutes(prisma));
 
 const methodSchema = z.object({
   title: z.string().min(1),
@@ -372,9 +396,10 @@ app.get('/sync/pull', async (_req, res) => {
 });
 
 const port = process.env.PORT || 4000;
-app.listen(port, () => {
+server.listen(port, () => {
   // eslint-disable-next-line no-console
   console.log(`ELN server listening on http://localhost:${port}`);
+  console.log(`WebSocket server ready for real-time collaboration`);
 });
 
 // Small helper for role checks if needed later.
@@ -384,6 +409,8 @@ function requireRole(user: User, roles: Role[]) {
   }
 }
 
+// Export collaboration manager for use in routes
+export { collaboration };
 // ==================== INVENTORY MANAGEMENT ====================
 
 const locationSchema = z.object({
