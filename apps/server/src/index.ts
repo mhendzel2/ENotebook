@@ -5,15 +5,27 @@ import morgan from 'morgan';
 import crypto from 'crypto';
 import { z } from 'zod';
 import { v4 as uuid } from 'uuid';
-import { PrismaClient } from '@prisma/client';
-import { 
-  Experiment, Method, User, Role, 
-  MODALITIES, INVENTORY_CATEGORIES, STOCK_STATUSES, EXPERIMENT_STATUSES, SIGNATURE_TYPES 
-} from '@eln/shared';
-import { apiKeyRoutes, apiKeyAuth, scopeRequired, Scope } from './middleware/apiKey';
-import { createExportRoutes } from './routes/export';
+import { PrismaClient, Prisma } from '@prisma/client';
+import {
+  MODALITIES,
+  INVENTORY_CATEGORIES,
+  STOCK_STATUSES,
+  EXPERIMENT_STATUSES,
+  SIGNATURE_TYPES,
+  type Role
+} from './shared.js';
+import { createApiKeyRoutes } from './middleware/apiKey.js';
+import { createExportRoutes } from './routes/export.js';
 
 const prisma = new PrismaClient();
+
+type MethodRecord = Awaited<ReturnType<typeof prisma.method.findMany>>[number];
+type ExperimentRecord = Awaited<ReturnType<typeof prisma.experiment.findMany>>[number];
+type InventoryItemRecord = Awaited<ReturnType<typeof prisma.inventoryItem.findMany>>[number];
+type StockRecord = Awaited<ReturnType<typeof prisma.stock.findMany>>[number];
+type CommentRecord = Awaited<ReturnType<typeof prisma.comment.findMany>>[number];
+type ChangeLogRecord = Awaited<ReturnType<typeof prisma.changeLog.findMany>>[number];
+type UserRecord = Awaited<ReturnType<typeof prisma.user.findMany>>[number];
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -86,7 +98,7 @@ app.get('/health', (_req, res) => {
 });
 
 // ==================== API KEY MANAGEMENT ====================
-app.use(apiKeyRoutes(prisma));
+app.use(createApiKeyRoutes(prisma));
 
 // ==================== DATA EXPORT ====================
 app.use(createExportRoutes(prisma));
@@ -102,9 +114,9 @@ const methodSchema = z.object({
 
 app.get('/methods', async (_req, res) => {
   try {
-    const methods = await prisma.method.findMany();
+    const methods: MethodRecord[] = await prisma.method.findMany();
     // Parse JSON fields
-    const parsedMethods = methods.map(m => ({
+    const parsedMethods = methods.map((m) => ({
       ...m,
       steps: JSON.parse(m.steps),
       reagents: m.reagents ? JSON.parse(m.reagents) : undefined,
@@ -121,7 +133,7 @@ app.post('/methods', async (req, res) => {
   if (!parse.success) {
     return res.status(400).json({ error: parse.error.flatten() });
   }
-  const user = (req as any).user as User;
+  const user = (req as any).user as UserRecord;
   
   try {
     const { steps, reagents, attachments, ...rest } = parse.data;
@@ -161,12 +173,12 @@ const experimentSchema = z.object({
 
 // 1. Replace GET /experiments with Prisma
 app.get('/experiments', async (req, res) => {
-  const user = (req as any).user as User;
+  const user = (req as any).user as UserRecord;
   try {
     const where = user.role === 'manager' ? {} : { userId: user.id };
-    const data = await prisma.experiment.findMany({ where });
+    const data: ExperimentRecord[] = await prisma.experiment.findMany({ where });
     // Parse JSON fields
-    const parsedData = data.map(e => ({
+    const parsedData = data.map((e) => ({
       ...e,
       params: e.params ? JSON.parse(e.params) : undefined,
       observations: e.observations ? JSON.parse(e.observations) : undefined,
@@ -180,7 +192,7 @@ app.get('/experiments', async (req, res) => {
 
 // 2. Replace POST /experiments with Prisma
 app.post('/experiments', async (req, res) => {
-  const user = (req as any).user as User;
+  const user = (req as any).user as UserRecord;
   const parse = experimentSchema.safeParse(req.body);
   
   if (!parse.success) {
@@ -212,7 +224,7 @@ app.post('/experiments', async (req, res) => {
 
 // Create experiment from method template
 app.post('/experiments/from-method/:methodId', async (req, res) => {
-  const user = (req as any).user as User;
+  const user = (req as any).user as UserRecord;
   const { methodId } = req.params;
   const { title, project, modality } = req.body;
 
@@ -247,7 +259,13 @@ app.post('/experiments/from-method/:methodId', async (req, res) => {
 });
 
 const syncPayloadSchema = z.object({
-  methods: z.array(methodSchema.extend({ id: z.string().uuid(), version: z.number().int().positive(), updatedAt: z.string() })),
+  methods: z.array(
+    methodSchema.extend({
+      id: z.string().uuid(),
+      version: z.number().int().positive(),
+      updatedAt: z.string()
+    })
+  ),
   experiments: z.array(
     experimentSchema.extend({
       id: z.string().uuid(),
@@ -259,6 +277,13 @@ const syncPayloadSchema = z.object({
   )
 });
 
+type SyncMethod = z.infer<typeof syncPayloadSchema>['methods'][number];
+type SyncExperiment = z.infer<typeof syncPayloadSchema>['experiments'][number];
+type SyncPayload = {
+  methods: SyncMethod[];
+  experiments: SyncExperiment[];
+};
+
 // 3. Implement the Sync Logic (Replacing the placeholder)
 app.post('/sync/push', async (req, res) => {
   const parse = syncPayloadSchema.safeParse(req.body);
@@ -266,17 +291,19 @@ app.post('/sync/push', async (req, res) => {
     return res.status(400).json({ error: parse.error.flatten() });
   }
 
-  const { methods, experiments } = parse.data;
-  const conflicts: any[] = [];
-  const applied: any[] = [];
+  const { methods, experiments }: SyncPayload = parse.data as SyncPayload;
+  const conflicts: Array<{ id: string; serverVersion?: number; clientVersion?: number }> = [];
+  const applied: Array<{ id: string; status: 'created' | 'updated' }> = [];
 
   // Transaction ensures atomicity
   try {
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       
       // Handle Experiments
-      for (const incExp of experiments) {
+      for (const incExp of experiments as SyncExperiment[]) {
         const existing = await tx.experiment.findUnique({ where: { id: incExp.id } });
+        const expId = String(incExp.id);
+        const expVersion = Number(incExp.version);
         
         const { params, observations, tags, ...rest } = incExp;
         const dataToSave = {
@@ -289,18 +316,18 @@ app.post('/sync/push', async (req, res) => {
         if (!existing) {
           // It's new, insert it
           await tx.experiment.create({ data: dataToSave });
-          applied.push({ id: incExp.id, status: 'created' });
+          applied.push({ id: expId, status: 'created' });
         } else {
           // Conflict Detection: simple version check
-          if (incExp.version > existing.version) {
+          if (expVersion > existing.version) {
             await tx.experiment.update({
               where: { id: incExp.id },
               data: dataToSave
             });
-            applied.push({ id: incExp.id, status: 'updated' });
-          } else if (incExp.version < existing.version) {
+            applied.push({ id: expId, status: 'updated' });
+          } else if (expVersion < existing.version) {
             // Server has newer version; reject push and notify client
-            conflicts.push({ id: incExp.id, serverVersion: existing.version, clientVersion: incExp.version });
+            conflicts.push({ id: expId, serverVersion: existing.version, clientVersion: expVersion });
           }
           // If versions equal, do nothing (idempotent)
         }
@@ -348,17 +375,17 @@ app.post('/sync/push', async (req, res) => {
 
 app.get('/sync/pull', async (_req, res) => {
   try {
-    const methods = await prisma.method.findMany();
-    const experiments = await prisma.experiment.findMany();
-    
-    const parsedMethods = methods.map(m => ({
+    const methods: MethodRecord[] = await prisma.method.findMany();
+    const experiments: ExperimentRecord[] = await prisma.experiment.findMany();
+
+    const parsedMethods = methods.map((m) => ({
       ...m,
       steps: JSON.parse(m.steps),
       reagents: m.reagents ? JSON.parse(m.reagents) : undefined,
       attachments: m.attachments ? JSON.parse(m.attachments) : undefined
     }));
 
-    const parsedExperiments = experiments.map(e => ({
+    const parsedExperiments = experiments.map((e) => ({
       ...e,
       params: e.params ? JSON.parse(e.params) : undefined,
       observations: e.observations ? JSON.parse(e.observations) : undefined,
@@ -378,7 +405,7 @@ app.listen(port, () => {
 });
 
 // Small helper for role checks if needed later.
-function requireRole(user: User, roles: Role[]) {
+function requireRole(user: UserRecord, roles: Role[]) {
   if (!roles.includes(user.role)) {
     throw new Error('forbidden');
   }
@@ -449,11 +476,11 @@ app.get('/inventory', async (req, res) => {
         { manufacturer: { contains: sanitizedSearch } }
       ];
     }
-    const items = await prisma.inventoryItem.findMany({
+    const items: InventoryItemRecord[] = await prisma.inventoryItem.findMany({
       where,
       include: { stocks: { include: { location: true } } }
     });
-    const parsedItems = items.map(item => ({
+    const parsedItems = items.map((item) => ({
       ...item,
       properties: item.properties ? JSON.parse(item.properties) : undefined
     }));
@@ -594,7 +621,7 @@ app.patch('/stock/:id', async (req, res) => {
 
 // Record stock usage in experiment
 app.post('/experiments/:experimentId/stock-usage', async (req, res) => {
-  const user = (req as any).user as User;
+  const user = (req as any).user as UserRecord;
   const { experimentId } = req.params;
   const { stockId, quantityUsed, notes } = req.body;
 
@@ -630,7 +657,7 @@ app.post('/experiments/:experimentId/stock-usage', async (req, res) => {
 // ==================== METHOD VERSIONING ====================
 
 app.post('/methods/:id/new-version', async (req, res) => {
-  const user = (req as any).user as User;
+  const user = (req as any).user as UserRecord;
   const { id } = req.params;
 
   try {
@@ -678,12 +705,12 @@ app.get('/methods/:id/versions', async (req, res) => {
     if (!method) return res.status(404).json({ error: 'Method not found' });
 
     const rootId = method.parentMethodId || method.id;
-    const versions = await prisma.method.findMany({
+    const versions: MethodRecord[] = await prisma.method.findMany({
       where: { OR: [{ id: rootId }, { parentMethodId: rootId }] },
       orderBy: { version: 'desc' }
     });
 
-    res.json(versions.map(m => ({
+    res.json(versions.map((m) => ({
       ...m,
       steps: JSON.parse(m.steps),
       reagents: m.reagents ? JSON.parse(m.reagents) : undefined,
@@ -706,7 +733,7 @@ function computeContentHash(content: any): string {
 }
 
 app.post('/experiments/:id/sign', async (req, res) => {
-  const user = (req as any).user as User;
+  const user = (req as any).user as UserRecord;
   const { id } = req.params;
   const parse = signatureSchema.safeParse(req.body);
   
@@ -760,7 +787,7 @@ app.get('/experiments/:id/signatures', async (req, res) => {
 });
 
 app.post('/methods/:id/sign', async (req, res) => {
-  const user = (req as any).user as User;
+  const user = (req as any).user as UserRecord;
   const { id } = req.params;
   const parse = signatureSchema.safeParse(req.body);
   
@@ -801,22 +828,22 @@ const commentSchema = z.object({
 
 app.get('/experiments/:id/comments', async (req, res) => {
   try {
-    const comments = await prisma.comment.findMany({
+    const comments: CommentRecord[] = await prisma.comment.findMany({
       where: { experimentId: req.params.id },
-      include: { 
+      include: {
         author: { select: { id: true, name: true } },
         replies: { include: { author: { select: { id: true, name: true } } } }
       },
       orderBy: { createdAt: 'asc' }
     });
-    res.json(comments.filter(c => !c.parentId)); // Return only top-level comments
+    res.json(comments.filter((c) => !c.parentId)); // Return only top-level comments
   } catch (error) {
     res.status(500).json({ error: 'Database error' });
   }
 });
 
 app.post('/experiments/:id/comments', async (req, res) => {
-  const user = (req as any).user as User;
+  const user = (req as any).user as UserRecord;
   const { id } = req.params;
   const parse = commentSchema.safeParse(req.body);
   
@@ -860,22 +887,22 @@ app.post('/experiments/:id/comments', async (req, res) => {
 
 app.get('/methods/:id/comments', async (req, res) => {
   try {
-    const comments = await prisma.comment.findMany({
+    const comments: CommentRecord[] = await prisma.comment.findMany({
       where: { methodId: req.params.id },
-      include: { 
+      include: {
         author: { select: { id: true, name: true } },
         replies: { include: { author: { select: { id: true, name: true } } } }
       },
       orderBy: { createdAt: 'asc' }
     });
-    res.json(comments.filter(c => !c.parentId));
+    res.json(comments.filter((c) => !c.parentId));
   } catch (error) {
     res.status(500).json({ error: 'Database error' });
   }
 });
 
 app.post('/methods/:id/comments', async (req, res) => {
-  const user = (req as any).user as User;
+  const user = (req as any).user as UserRecord;
   const { id } = req.params;
   const parse = commentSchema.safeParse(req.body);
   
@@ -906,7 +933,7 @@ app.post('/methods/:id/comments', async (req, res) => {
 // ==================== NOTIFICATIONS ====================
 
 app.get('/notifications', async (req, res) => {
-  const user = (req as any).user as User;
+  const user = (req as any).user as UserRecord;
   const { unreadOnly } = req.query;
 
   try {
@@ -925,7 +952,7 @@ app.get('/notifications', async (req, res) => {
 });
 
 app.patch('/notifications/:id/read', async (req, res) => {
-  const user = (req as any).user as User;
+  const user = (req as any).user as UserRecord;
   try {
     const notification = await prisma.notification.findUnique({ where: { id: req.params.id } });
     if (!notification || notification.userId !== user.id) {
@@ -942,7 +969,7 @@ app.patch('/notifications/:id/read', async (req, res) => {
 });
 
 app.patch('/notifications/read-all', async (req, res) => {
-  const user = (req as any).user as User;
+  const user = (req as any).user as UserRecord;
   try {
     await prisma.notification.updateMany({
       where: { userId: user.id, read: false },
@@ -979,7 +1006,7 @@ async function logChange(
 }
 
 app.get('/audit-log', async (req, res) => {
-  const user = (req as any).user as User;
+  const user = (req as any).user as UserRecord;
   if (user.role !== 'manager' && user.role !== 'admin') {
     return res.status(403).json({ error: 'Access denied' });
   }
@@ -990,13 +1017,13 @@ app.get('/audit-log', async (req, res) => {
     if (entityType) where.entityType = entityType;
     if (entityId) where.entityId = entityId;
 
-    const logs = await prisma.changeLog.findMany({
+    const logs: ChangeLogRecord[] = await prisma.changeLog.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       take: Number(limit)
     });
 
-    res.json(logs.map(log => ({
+    res.json(logs.map((log) => ({
       ...log,
       oldValue: log.oldValue ? JSON.parse(log.oldValue) : undefined,
       newValue: log.newValue ? JSON.parse(log.newValue) : undefined

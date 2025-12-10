@@ -3,6 +3,11 @@
     "target": "ES2020",
     "module": "ESNext",
     "lib": ["ES2020", "DOM"],
+    "baseUrl": ".",
+    "paths": {
+      "@eln/shared": ["packages/shared/src"],
+      "@eln/shared/*": ["packages/shared/src/*"]
+    },
     "moduleResolution": "Node",
     "strict": true,
     "esModuleInterop": true,

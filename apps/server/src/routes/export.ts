@@ -9,6 +9,8 @@ import { Parser } from 'json2csv';
 
 const router = Router();
 
+type ArrayElement<T> = T extends Array<infer U> ? U : never;
+
 // ==================== EXPORT HELPERS ====================
 
 /**
@@ -78,7 +80,7 @@ export function createExportRoutes(prisma: PrismaClient): Router {
       }
       
       // Fetch experiments
-      const experiments = await prisma.experiment.findMany({
+      const experiments = (await prisma.experiment.findMany({
         where,
         include: {
           signatures: {
@@ -96,10 +98,10 @@ export function createExportRoutes(prisma: PrismaClient): Router {
             }
           }
         }
-      });
+      })) as Array<Record<string, any>>;
       
       // Parse JSON fields
-      const parsed = experiments.map(e => ({
+      const parsed = experiments.map((e: ArrayElement<typeof experiments>) => ({
         ...e,
         params: e.params ? JSON.parse(e.params) : undefined,
         observations: e.observations ? JSON.parse(e.observations) : undefined,
@@ -154,9 +156,9 @@ export function createExportRoutes(prisma: PrismaClient): Router {
         where.id = { in: idList };
       }
       
-      const methods = await prisma.method.findMany({ where });
-      
-      const parsed = methods.map(m => ({
+      const methods = (await prisma.method.findMany({ where })) as Array<Record<string, any>>;
+
+      const parsed = methods.map((m: ArrayElement<typeof methods>) => ({
         ...m,
         steps: JSON.parse(m.steps),
         reagents: m.reagents ? JSON.parse(m.reagents) : undefined,
@@ -189,16 +191,16 @@ export function createExportRoutes(prisma: PrismaClient): Router {
       const where: any = {};
       if (category) where.category = category;
       
-      const items = await prisma.inventoryItem.findMany({
+      const items = (await prisma.inventoryItem.findMany({
         where,
         include: {
           stocks: includeStocks === 'true' ? {
             include: { location: true }
           } : false
         }
-      });
-      
-      const parsed = items.map(item => ({
+      })) as Array<Record<string, any>>;
+
+      const parsed = items.map((item: ArrayElement<typeof items>) => ({
         ...item,
         properties: item.properties ? JSON.parse(item.properties) : undefined
       }));
@@ -240,12 +242,12 @@ export function createExportRoutes(prisma: PrismaClient): Router {
         if (endDate) where.createdAt.lte = new Date(endDate as string);
       }
       
-      const logs = await prisma.changeLog.findMany({
+      const logs = (await prisma.changeLog.findMany({
         where,
         orderBy: { createdAt: 'desc' }
-      });
-      
-      const parsed = logs.map(log => ({
+      })) as Array<Record<string, any>>;
+
+      const parsed = logs.map((log: ArrayElement<typeof logs>) => ({
         ...log,
         oldValue: log.oldValue ? JSON.parse(log.oldValue) : undefined,
         newValue: log.newValue ? JSON.parse(log.newValue) : undefined
@@ -279,13 +281,13 @@ export function createExportRoutes(prisma: PrismaClient): Router {
     
     try {
       // Gather all data
-      const [experiments, methods, inventory, locations, users] = await Promise.all([
-        prisma.experiment.findMany(),
-        prisma.method.findMany(),
-        prisma.inventoryItem.findMany({ include: { stocks: true } }),
-        prisma.location.findMany(),
-        prisma.user.findMany({ select: { id: true, name: true, email: true, role: true, createdAt: true } })
-      ]);
+      const experiments = (await prisma.experiment.findMany()) as Array<Record<string, any>>;
+      const methods = (await prisma.method.findMany()) as Array<Record<string, any>>;
+      const inventory = (await prisma.inventoryItem.findMany({ include: { stocks: true } })) as Array<Record<string, any>>;
+      const locations = await prisma.location.findMany();
+      const users = await prisma.user.findMany({
+        select: { id: true, name: true, email: true, role: true, createdAt: true }
+      });
       
       // Parse JSON fields
       const exportData = {
@@ -293,19 +295,19 @@ export function createExportRoutes(prisma: PrismaClient): Router {
         exportedBy: user.id,
         version: '1.0',
         data: {
-          experiments: experiments.map(e => ({
+          experiments: experiments.map((e: ArrayElement<typeof experiments>) => ({
             ...e,
             params: e.params ? JSON.parse(e.params) : undefined,
             observations: e.observations ? JSON.parse(e.observations) : undefined,
             tags: e.tags ? JSON.parse(e.tags) : []
           })),
-          methods: methods.map(m => ({
+          methods: methods.map((m: ArrayElement<typeof methods>) => ({
             ...m,
             steps: JSON.parse(m.steps),
             reagents: m.reagents ? JSON.parse(m.reagents) : undefined,
             attachments: m.attachments ? JSON.parse(m.attachments) : undefined
           })),
-          inventory: inventory.map(item => ({
+          inventory: inventory.map((item: ArrayElement<typeof inventory>) => ({
             ...item,
             properties: item.properties ? JSON.parse(item.properties) : undefined
           })),

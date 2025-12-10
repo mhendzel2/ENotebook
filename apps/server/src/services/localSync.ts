@@ -3,7 +3,7 @@
  * Handles offline caching and synchronization with the central server
  */
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
@@ -24,6 +24,29 @@ interface PendingChange {
   data: any;
   timestamp: string;
   synced: boolean;
+}
+
+interface RemoteMethodPayload {
+  id: string;
+  version: number;
+  steps: unknown;
+  reagents?: unknown;
+  attachments?: unknown;
+  [key: string]: unknown;
+}
+
+interface RemoteExperimentPayload {
+  id: string;
+  version: number;
+  params?: unknown;
+  observations?: unknown;
+  tags?: string[];
+  [key: string]: unknown;
+}
+
+interface SyncPullResponse {
+  methods?: RemoteMethodPayload[];
+  experiments?: RemoteExperimentPayload[];
 }
 
 export class LocalSyncService {
@@ -276,7 +299,7 @@ export class LocalSyncService {
         throw new Error(`Push failed: ${response.status}`);
       }
 
-      const result = await response.json();
+      const result = (await response.json()) as { applied?: unknown[]; conflicts?: unknown[] };
       
       // Mark pushed changes as synced
       const updatedPending = this.loadPendingChanges().map(c => {
@@ -331,7 +354,7 @@ export class LocalSyncService {
         throw new Error(`Pull failed: ${response.status}`);
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as SyncPullResponse;
       let pulled = 0;
 
       // Merge methods
@@ -464,7 +487,7 @@ export class LocalSyncService {
     console.log(`[LocalSync] Export date: ${data.exportedAt}`);
 
     // Import in transaction
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Import users
       for (const user of data.users || []) {
         await tx.user.upsert({
