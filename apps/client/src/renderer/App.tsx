@@ -6,7 +6,7 @@ import { LoginPage, CreateAccountPage, AuthUser } from './components/Auth';
 type NavTab = 'dashboard' | 'methods' | 'experiments' | 'inventory' | 'workflows' | 'labels' | 'analytics' | 'sync' | 'settings';
 type AuthState = 'login' | 'register' | 'authenticated';
 
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = 'http://localhost:4000';
 
 function App() {
   const [authState, setAuthState] = useState<AuthState>('login');

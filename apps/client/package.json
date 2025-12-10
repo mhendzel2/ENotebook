@@ -2,12 +2,11 @@
   "name": "@eln/client",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "main": "dist/main.js",
   "scripts": {
     "dev": "concurrently \"npm:dev:renderer\" \"npm:dev:main\"",
     "dev:renderer": "vite --config vite.renderer.config.ts",
-    "dev:main": "ts-node ./src/main.ts",
+    "dev:main": "tsc -p tsconfig.main.json && electron ./dist/main.js",
     "build": "vite build --config vite.renderer.config.ts && tsc -p tsconfig.main.json",
     "lint": "echo \"(lint client)\""
   },
@@ -27,7 +26,7 @@
     "@types/react-dom": "^18.2.15",
     "@vitejs/plugin-react": "^4.2.1",
     "concurrently": "^8.2.2",
-    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "vite": "^5.0.8"
   }
 }
