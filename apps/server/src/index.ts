@@ -10,6 +10,8 @@ import {
   Experiment, Method, User, Role, 
   MODALITIES, INVENTORY_CATEGORIES, STOCK_STATUSES, EXPERIMENT_STATUSES, SIGNATURE_TYPES 
 } from '@eln/shared';
+import { apiKeyRoutes, apiKeyAuth, scopeRequired, Scope } from './middleware/apiKey';
+import { createExportRoutes } from './routes/export';
 
 const prisma = new PrismaClient();
 
@@ -19,11 +21,53 @@ app.use(cors());
 app.use(helmet());
 app.use(morgan('dev'));
 
-// Simple header-based auth stub.
+// Simple header-based auth stub with API key fallback.
 app.use(async (req, res, next) => {
+  // Skip auth for health check
+  if (req.path === '/health') {
+    return next();
+  }
+  
+  // Try API key auth first
+  const apiKey = req.header('x-api-key');
+  if (apiKey) {
+    try {
+      // Hash the provided key
+      const keyHash = crypto.createHash('sha256').update(apiKey).digest('hex');
+      
+      const apiKeyRecord = await prisma.aPIKey.findFirst({
+        where: { keyHash, active: true },
+        include: { user: true }
+      });
+      
+      if (!apiKeyRecord) {
+        return res.status(401).json({ error: 'Invalid API key' });
+      }
+      
+      // Check expiration
+      if (apiKeyRecord.expiresAt && apiKeyRecord.expiresAt < new Date()) {
+        return res.status(401).json({ error: 'API key expired' });
+      }
+      
+      // Update last used
+      await prisma.aPIKey.update({
+        where: { id: apiKeyRecord.id },
+        data: { lastUsedAt: new Date() }
+      });
+      
+      // Attach user and key info
+      (req as any).user = apiKeyRecord.user;
+      (req as any).apiKey = apiKeyRecord;
+      return next();
+    } catch (error) {
+      return res.status(500).json({ error: 'API key validation error' });
+    }
+  }
+  
+  // Fall back to user ID header auth
   const userId = req.header('x-user-id');
   if (!userId) {
-    return res.status(401).json({ error: 'Missing x-user-id' });
+    return res.status(401).json({ error: 'Missing x-user-id or x-api-key header' });
   }
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -40,6 +84,12 @@ app.use(async (req, res, next) => {
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
 });
+
+// ==================== API KEY MANAGEMENT ====================
+app.use(apiKeyRoutes(prisma));
+
+// ==================== DATA EXPORT ====================
+app.use(createExportRoutes(prisma));
 
 const methodSchema = z.object({
   title: z.string().min(1),

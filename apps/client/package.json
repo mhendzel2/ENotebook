@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@eln/shared": "*",
+    "chokidar": "^3.5.3",
     "electron": "^28.2.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

@@ -23,6 +23,8 @@ model User {
   signatures  Signature[]
   comments    Comment[]
   notifications Notification[]
+  apiKeys     APIKey[]
+  webhooks    Webhook[]
 }
 
 model Device {
@@ -256,6 +258,39 @@ model Notification {
   entityId     String?
   read         Boolean  @default(false)
   createdAt    DateTime @default(now())
+}
+
+// ==================== API KEY MANAGEMENT ====================
+
+model APIKey {
+  id           String   @id @default(uuid())
+  user         User     @relation(fields: [userId], references: [id])
+  userId       String
+  name         String
+  keyHash      String   @unique
+  keyPrefix    String   // First 8-12 chars for identification
+  permissions  String   // JSON array of permissions
+  expiresAt    DateTime?
+  lastUsedAt   DateTime?
+  createdAt    DateTime @default(now())
+  revokedAt    DateTime?
+}
+
+// ==================== WEBHOOKS ====================
+
+model Webhook {
+  id           String   @id @default(uuid())
+  user         User     @relation(fields: [userId], references: [id])
+  userId       String
+  name         String
+  url          String
+  secret       String?  // For signature verification
+  events       String   // JSON array of event types
+  active       Boolean  @default(true)
+  lastTriggeredAt DateTime?
+  failureCount Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 // Enums removed for SQLite compatibility

@@ -260,3 +260,159 @@ export const SIGNATURE_TYPES: SignatureType[] = [
   'reviewer',
   'approver'
 ];
+
+// ==================== FILE WATCHER TYPES ====================
+
+export type FileWatcherStatus = 'idle' | 'watching' | 'processing' | 'error';
+
+export interface WatchedFolder {
+  id: string;
+  path: string;
+  experimentId?: string;
+  modality?: Modality;
+  pattern?: string; // Glob pattern for file matching
+  autoUpload: boolean;
+  deleteAfterUpload: boolean;
+  status: FileWatcherStatus;
+  lastActivity?: string;
+  filesProcessed: number;
+  createdAt: string;
+}
+
+export interface FileImportEvent {
+  id: string;
+  watchedFolderId: string;
+  filePath: string;
+  fileName: string;
+  fileSize: number;
+  mimeType?: string;
+  experimentId?: string;
+  attachmentId?: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  error?: string;
+  createdAt: string;
+  processedAt?: string;
+}
+
+// ==================== API TYPES ====================
+
+export interface APIKey {
+  id: string;
+  userId: string;
+  name: string;
+  keyHash: string;
+  keyPrefix: string; // First 8 chars for identification
+  permissions: APIPermission[];
+  expiresAt?: string;
+  lastUsedAt?: string;
+  createdAt: string;
+  revokedAt?: string;
+}
+
+export type APIPermission = 
+  | 'read:experiments'
+  | 'write:experiments'
+  | 'read:methods'
+  | 'write:methods'
+  | 'read:inventory'
+  | 'write:inventory'
+  | 'read:attachments'
+  | 'write:attachments'
+  | 'read:users'
+  | 'admin';
+
+export const API_PERMISSIONS: APIPermission[] = [
+  'read:experiments',
+  'write:experiments',
+  'read:methods',
+  'write:methods',
+  'read:inventory',
+  'write:inventory',
+  'read:attachments',
+  'write:attachments',
+  'read:users',
+  'admin'
+];
+
+// ==================== OBSERVATIONS STRUCTURED DATA ====================
+
+export interface ObservationTable {
+  id: string;
+  title: string;
+  columns: TableColumn[];
+  rows: Record<string, unknown>[];
+}
+
+export interface TableColumn {
+  key: string;
+  header: string;
+  type: 'text' | 'number' | 'date' | 'boolean' | 'select';
+  options?: string[]; // For select type
+  unit?: string;
+  required?: boolean;
+}
+
+export interface Measurement {
+  id: string;
+  timestamp: string;
+  parameter: string;
+  value: number;
+  unit: string;
+  notes?: string;
+}
+
+export interface KineticDataset {
+  label: string;
+  values: number[];
+  color?: string;
+}
+
+export interface KineticData {
+  timePoints: number[];
+  datasets: KineticDataset[];
+  xLabel: string;
+  yLabel: string;
+  xUnit?: string;
+  yUnit?: string;
+}
+
+export interface CellCount {
+  sample: string;
+  totalCells: number;
+  viableCells?: number;
+  viability?: number;
+  dilutionFactor?: number;
+  notes?: string;
+}
+
+export interface CellCountData {
+  method: 'hemocytometer' | 'automated' | 'flow_cytometry';
+  counts: CellCount[];
+  averageViability?: number;
+}
+
+export interface RichObservations {
+  narrative?: string; // Rich text HTML
+  tables?: ObservationTable[];
+  measurements?: Measurement[];
+  kineticData?: KineticData;
+  cellCounts?: CellCountData;
+  images?: EmbeddedImage[];
+  conclusions?: string;
+}
+
+export interface EmbeddedImage {
+  id: string;
+  caption: string;
+  attachmentId: string;
+  annotations?: ImageAnnotation[];
+}
+
+export interface ImageAnnotation {
+  id: string;
+  type: 'rectangle' | 'circle' | 'arrow' | 'text' | 'freehand';
+  coordinates: number[];
+  label?: string;
+  color?: string;
+}
+

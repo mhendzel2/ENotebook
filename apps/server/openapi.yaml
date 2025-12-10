@@ -1,0 +1,1553 @@
+openapi: 3.0.3
+info:
+  title: Electronic Lab Notebook API
+  description: |
+    REST API for the Electronic Lab Notebook (ELN) application.
+    
+    ## Authentication
+    
+    All endpoints require authentication via API key or user session:
+    - **API Key**: Include `x-api-key` header with your API key
+    - **Session**: Include `x-user-id` header with your user ID
+    
+    ## Rate Limiting
+    
+    API calls are rate limited to 1000 requests per hour per API key.
+    
+    ## Pagination
+    
+    List endpoints support pagination via `limit` and `offset` query parameters.
+    Default limit is 50, maximum is 200.
+    
+    ## Data Export
+    
+    All list endpoints support data export via `format` query parameter:
+    - `json` (default)
+    - `csv`
+    - `xlsx`
+  version: 1.0.0
+  contact:
+    name: ELN Support
+    email: support@eln.local
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:4000
+    description: Local development server
+  - url: https://eln.example.com/api
+    description: Production server
+
+tags:
+  - name: experiments
+    description: Experiment management
+  - name: methods
+    description: Protocol/method library
+  - name: inventory
+    description: Inventory and stock management
+  - name: attachments
+    description: File attachments
+  - name: users
+    description: User management
+  - name: sync
+    description: Data synchronization
+  - name: search
+    description: Search functionality
+  - name: export
+    description: Data export
+  - name: webhooks
+    description: Webhook configuration
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      tags: [system]
+      security: []
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  time:
+                    type: string
+                    format: date-time
+
+  # ==================== EXPERIMENTS ====================
+  /experiments:
+    get:
+      summary: List experiments
+      tags: [experiments]
+      parameters:
+        - $ref: '#/components/parameters/limitParam'
+        - $ref: '#/components/parameters/offsetParam'
+        - $ref: '#/components/parameters/formatParam'
+        - name: modality
+          in: query
+          schema:
+            $ref: '#/components/schemas/Modality'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/ExperimentStatus'
+        - name: project
+          in: query
+          schema:
+            type: string
+        - name: tags
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: createdAfter
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: createdBefore
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: List of experiments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Experiment'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+    post:
+      summary: Create experiment
+      tags: [experiments]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExperimentCreate'
+      responses:
+        '201':
+          description: Experiment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Experiment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /experiments/{id}:
+    get:
+      summary: Get experiment by ID
+      tags: [experiments]
+      parameters:
+        - $ref: '#/components/parameters/idParam'
+        - name: include
+          in: query
+          description: Related data to include
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [signatures, comments, attachments, stockUsages]
+      responses:
+        '200':
+          description: Experiment details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Experiment'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      summary: Update experiment
+      tags: [experiments]
+      parameters:
+        - $ref: '#/components/parameters/idParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExperimentUpdate'
+      responses:
+        '200':
+          description: Experiment updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Experiment'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      summary: Delete experiment
+      tags: [experiments]
+      parameters:
+        - $ref: '#/components/parameters/idParam'
+      responses:
+        '204':
+          description: Experiment deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /experiments/{id}/sign:
+    post:
+      summary: Add electronic signature
+      tags: [experiments]
+      parameters:
+        - $ref: '#/components/parameters/idParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignatureCreate'
+      responses:
+        '201':
+          description: Signature added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Signature'
+
+  /experiments/{id}/comments:
+    get:
+      summary: Get experiment comments
+      tags: [experiments]
+      parameters:
+        - $ref: '#/components/parameters/idParam'
+      responses:
+        '200':
+          description: List of comments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Comment'
+    post:
+      summary: Add comment to experiment
+      tags: [experiments]
+      parameters:
+        - $ref: '#/components/parameters/idParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentCreate'
+      responses:
+        '201':
+          description: Comment added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+
+  /experiments/{id}/stock-usage:
+    post:
+      summary: Record stock usage in experiment
+      tags: [experiments, inventory]
+      parameters:
+        - $ref: '#/components/parameters/idParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [stockId, quantityUsed]
+              properties:
+                stockId:
+                  type: string
+                  format: uuid
+                quantityUsed:
+                  type: number
+                notes:
+                  type: string
+      responses:
+        '201':
+          description: Stock usage recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentStock'
+
+  /experiments/from-method/{methodId}:
+    post:
+      summary: Create experiment from method template
+      tags: [experiments, methods]
+      parameters:
+        - name: methodId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                project:
+                  type: string
+                modality:
+                  $ref: '#/components/schemas/Modality'
+      responses:
+        '201':
+          description: Experiment created from template
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Experiment'
+
+  # ==================== METHODS ====================
+  /methods:
+    get:
+      summary: List methods/protocols
+      tags: [methods]
+      parameters:
+        - $ref: '#/components/parameters/limitParam'
+        - $ref: '#/components/parameters/offsetParam'
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: isPublic
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: List of methods
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Method'
+                  total:
+                    type: integer
+    post:
+      summary: Create method
+      tags: [methods]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MethodCreate'
+      responses:
+        '201':
+          description: Method created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Method'
+
+  /methods/{id}:
+    get:
+      summary: Get method by ID
+      tags: [methods]
+      parameters:
+        - $ref: '#/components/parameters/idParam'
+      responses:
+        '200':
+          description: Method details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Method'
+    put:
+      summary: Update method
+      tags: [methods]
+      parameters:
+        - $ref: '#/components/parameters/idParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MethodUpdate'
+      responses:
+        '200':
+          description: Method updated
+
+  /methods/{id}/new-version:
+    post:
+      summary: Create new version of method
+      tags: [methods]
+      parameters:
+        - $ref: '#/components/parameters/idParam'
+      responses:
+        '201':
+          description: New version created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Method'
+
+  /methods/{id}/versions:
+    get:
+      summary: Get all versions of a method
+      tags: [methods]
+      parameters:
+        - $ref: '#/components/parameters/idParam'
+      responses:
+        '200':
+          description: List of method versions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Method'
+
+  # ==================== INVENTORY ====================
+  /inventory:
+    get:
+      summary: List inventory items
+      tags: [inventory]
+      parameters:
+        - $ref: '#/components/parameters/limitParam'
+        - $ref: '#/components/parameters/offsetParam'
+        - name: category
+          in: query
+          schema:
+            $ref: '#/components/schemas/InventoryCategory'
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of inventory items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/InventoryItem'
+                  total:
+                    type: integer
+    post:
+      summary: Create inventory item
+      tags: [inventory]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InventoryItemCreate'
+      responses:
+        '201':
+          description: Item created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryItem'
+
+  /inventory/{id}:
+    get:
+      summary: Get inventory item by ID
+      tags: [inventory]
+      parameters:
+        - $ref: '#/components/parameters/idParam'
+        - name: include
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [stocks]
+      responses:
+        '200':
+          description: Inventory item details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryItem'
+
+  /stock:
+    get:
+      summary: List stock entries
+      tags: [inventory]
+      parameters:
+        - $ref: '#/components/parameters/limitParam'
+        - $ref: '#/components/parameters/offsetParam'
+        - name: itemId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: locationId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/StockStatus'
+        - name: expiringBefore
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: List of stock entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Stock'
+    post:
+      summary: Add stock entry
+      tags: [inventory]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StockCreate'
+      responses:
+        '201':
+          description: Stock entry created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stock'
+
+  /stock/{id}:
+    patch:
+      summary: Update stock entry
+      tags: [inventory]
+      parameters:
+        - $ref: '#/components/parameters/idParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StockUpdate'
+      responses:
+        '200':
+          description: Stock updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stock'
+
+  /locations:
+    get:
+      summary: List storage locations
+      tags: [inventory]
+      responses:
+        '200':
+          description: List of locations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Location'
+    post:
+      summary: Create storage location
+      tags: [inventory]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocationCreate'
+      responses:
+        '201':
+          description: Location created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Location'
+
+  # ==================== ATTACHMENTS ====================
+  /attachments:
+    post:
+      summary: Upload attachment
+      tags: [attachments]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                experimentId:
+                  type: string
+                  format: uuid
+                methodId:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Attachment uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+
+  /attachments/{id}:
+    get:
+      summary: Download attachment
+      tags: [attachments]
+      parameters:
+        - $ref: '#/components/parameters/idParam'
+      responses:
+        '200':
+          description: File content
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+    delete:
+      summary: Delete attachment
+      tags: [attachments]
+      parameters:
+        - $ref: '#/components/parameters/idParam'
+      responses:
+        '204':
+          description: Attachment deleted
+
+  # ==================== SEARCH ====================
+  /search:
+    get:
+      summary: Full-text search across all entities
+      tags: [search]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query
+        - name: type
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [experiment, method, inventory]
+          description: Entity types to search
+        - $ref: '#/components/parameters/limitParam'
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        type:
+                          type: string
+                        id:
+                          type: string
+                        title:
+                          type: string
+                        snippet:
+                          type: string
+                        score:
+                          type: number
+                  total:
+                    type: integer
+
+  # ==================== EXPORT ====================
+  /export/experiments:
+    get:
+      summary: Export experiments data
+      tags: [export]
+      parameters:
+        - name: format
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [json, csv, xlsx, pdf, zip]
+        - name: ids
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              format: uuid
+          description: Specific experiment IDs to export (all if omitted)
+        - name: includeAttachments
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Exported data
+          content:
+            application/json:
+              schema:
+                type: object
+            text/csv:
+              schema:
+                type: string
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+            application/zip:
+              schema:
+                type: string
+                format: binary
+
+  # ==================== API KEYS ====================
+  /api-keys:
+    get:
+      summary: List user's API keys
+      tags: [users]
+      responses:
+        '200':
+          description: List of API keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/APIKey'
+    post:
+      summary: Create new API key
+      tags: [users]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, permissions]
+              properties:
+                name:
+                  type: string
+                permissions:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/APIPermission'
+                expiresAt:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          description: API key created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                    description: The API key (only shown once)
+                  apiKey:
+                    $ref: '#/components/schemas/APIKey'
+
+  /api-keys/{id}:
+    delete:
+      summary: Revoke API key
+      tags: [users]
+      parameters:
+        - $ref: '#/components/parameters/idParam'
+      responses:
+        '204':
+          description: API key revoked
+
+  # ==================== SYNC ====================
+  /sync/push:
+    post:
+      summary: Push local changes to server
+      tags: [sync]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                methods:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Method'
+                experiments:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Experiment'
+      responses:
+        '200':
+          description: Sync result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  applied:
+                    type: array
+                    items:
+                      type: object
+                  conflicts:
+                    type: array
+                    items:
+                      type: object
+
+  /sync/pull:
+    get:
+      summary: Pull changes from server
+      tags: [sync]
+      parameters:
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Only get changes after this timestamp
+      responses:
+        '200':
+          description: Server data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  methods:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Method'
+                  experiments:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Experiment'
+
+  # ==================== AUDIT LOG ====================
+  /audit-log:
+    get:
+      summary: Get audit log entries
+      tags: [users]
+      parameters:
+        - $ref: '#/components/parameters/limitParam'
+        - $ref: '#/components/parameters/offsetParam'
+        - name: entityType
+          in: query
+          schema:
+            type: string
+        - name: entityId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChangeLog'
+
+  # ==================== NOTIFICATIONS ====================
+  /notifications:
+    get:
+      summary: Get user notifications
+      tags: [users]
+      parameters:
+        - name: unreadOnly
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: List of notifications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Notification'
+
+  /notifications/{id}/read:
+    patch:
+      summary: Mark notification as read
+      tags: [users]
+      parameters:
+        - $ref: '#/components/parameters/idParam'
+      responses:
+        '200':
+          description: Notification updated
+
+  /notifications/read-all:
+    patch:
+      summary: Mark all notifications as read
+      tags: [users]
+      responses:
+        '200':
+          description: All notifications marked as read
+
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: x-api-key
+    userId:
+      type: apiKey
+      in: header
+      name: x-user-id
+
+  parameters:
+    idParam:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    limitParam:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    offsetParam:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    formatParam:
+      name: format
+      in: query
+      schema:
+        type: string
+        enum: [json, csv, xlsx]
+        default: json
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+
+  schemas:
+    Modality:
+      type: string
+      enum: [fluorescence, electron_microscopy, biophysical, molecular_biology, biochemistry, flow_cytometry]
+
+    ExperimentStatus:
+      type: string
+      enum: [draft, in_progress, completed, signed]
+
+    InventoryCategory:
+      type: string
+      enum: [reagent, plasmid, antibody, primer, cell_line, sample, consumable]
+
+    StockStatus:
+      type: string
+      enum: [available, low, empty, expired, disposed]
+
+    SignatureType:
+      type: string
+      enum: [author, witness, reviewer, approver]
+
+    APIPermission:
+      type: string
+      enum: [read:experiments, write:experiments, read:methods, write:methods, read:inventory, write:inventory, read:attachments, write:attachments, read:users, admin]
+
+    Experiment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        project:
+          type: string
+        modality:
+          $ref: '#/components/schemas/Modality'
+        protocolRef:
+          type: string
+          format: uuid
+        params:
+          type: object
+        observations:
+          type: object
+        resultsSummary:
+          type: string
+        dataLink:
+          type: string
+          format: uri
+        tags:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: '#/components/schemas/ExperimentStatus'
+        version:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ExperimentCreate:
+      type: object
+      required: [title, modality]
+      properties:
+        title:
+          type: string
+        project:
+          type: string
+        modality:
+          $ref: '#/components/schemas/Modality'
+        protocolRef:
+          type: string
+          format: uuid
+        params:
+          type: object
+        observations:
+          type: object
+        resultsSummary:
+          type: string
+        dataLink:
+          type: string
+          format: uri
+        tags:
+          type: array
+          items:
+            type: string
+
+    ExperimentUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        project:
+          type: string
+        params:
+          type: object
+        observations:
+          type: object
+        resultsSummary:
+          type: string
+        dataLink:
+          type: string
+          format: uri
+        tags:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: '#/components/schemas/ExperimentStatus'
+
+    Method:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        category:
+          type: string
+        steps:
+          type: object
+        reagents:
+          type: object
+        attachments:
+          type: object
+        createdBy:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        isPublic:
+          type: boolean
+        parentMethodId:
+          type: string
+          format: uuid
+        updatedAt:
+          type: string
+          format: date-time
+
+    MethodCreate:
+      type: object
+      required: [title, steps]
+      properties:
+        title:
+          type: string
+        category:
+          type: string
+        steps:
+          type: object
+        reagents:
+          type: object
+        attachments:
+          type: object
+        isPublic:
+          type: boolean
+          default: true
+
+    MethodUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        category:
+          type: string
+        steps:
+          type: object
+        reagents:
+          type: object
+        isPublic:
+          type: boolean
+
+    InventoryItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          $ref: '#/components/schemas/InventoryCategory'
+        catalogNumber:
+          type: string
+        manufacturer:
+          type: string
+        supplier:
+          type: string
+        unit:
+          type: string
+        properties:
+          type: object
+        safetyInfo:
+          type: string
+        storageConditions:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        stocks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Stock'
+
+    InventoryItemCreate:
+      type: object
+      required: [name, category]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          $ref: '#/components/schemas/InventoryCategory'
+        catalogNumber:
+          type: string
+        manufacturer:
+          type: string
+        supplier:
+          type: string
+        unit:
+          type: string
+        properties:
+          type: object
+        safetyInfo:
+          type: string
+        storageConditions:
+          type: string
+
+    Stock:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        itemId:
+          type: string
+          format: uuid
+        locationId:
+          type: string
+          format: uuid
+        lotNumber:
+          type: string
+        quantity:
+          type: number
+        initialQuantity:
+          type: number
+        expirationDate:
+          type: string
+          format: date
+        receivedDate:
+          type: string
+          format: date
+        barcode:
+          type: string
+        status:
+          $ref: '#/components/schemas/StockStatus'
+        notes:
+          type: string
+        item:
+          $ref: '#/components/schemas/InventoryItem'
+        location:
+          $ref: '#/components/schemas/Location'
+
+    StockCreate:
+      type: object
+      required: [itemId, quantity]
+      properties:
+        itemId:
+          type: string
+          format: uuid
+        locationId:
+          type: string
+          format: uuid
+        lotNumber:
+          type: string
+        quantity:
+          type: number
+        expirationDate:
+          type: string
+          format: date
+        barcode:
+          type: string
+        notes:
+          type: string
+
+    StockUpdate:
+      type: object
+      properties:
+        quantity:
+          type: number
+        locationId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/StockStatus'
+        notes:
+          type: string
+
+    Location:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        parentId:
+          type: string
+          format: uuid
+        temperature:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/Location'
+
+    LocationCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        parentId:
+          type: string
+          format: uuid
+        temperature:
+          type: string
+
+    Attachment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        mime:
+          type: string
+        size:
+          type: integer
+        experimentId:
+          type: string
+          format: uuid
+        methodId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+
+    Signature:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        signatureType:
+          $ref: '#/components/schemas/SignatureType'
+        meaning:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        contentHash:
+          type: string
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            email:
+              type: string
+
+    SignatureCreate:
+      type: object
+      required: [signatureType]
+      properties:
+        signatureType:
+          $ref: '#/components/schemas/SignatureType'
+        meaning:
+          type: string
+
+    Comment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        content:
+          type: string
+        authorId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        parentId:
+          type: string
+          format: uuid
+        author:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+        replies:
+          type: array
+          items:
+            $ref: '#/components/schemas/Comment'
+
+    CommentCreate:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+        parentId:
+          type: string
+          format: uuid
+
+    ExperimentStock:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        experimentId:
+          type: string
+          format: uuid
+        stockId:
+          type: string
+          format: uuid
+        quantityUsed:
+          type: number
+        usedAt:
+          type: string
+          format: date-time
+        notes:
+          type: string
+
+    ChangeLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        entityType:
+          type: string
+        entityId:
+          type: string
+        operation:
+          type: string
+          enum: [insert, update, delete]
+        version:
+          type: integer
+        oldValue:
+          type: object
+        newValue:
+          type: object
+        fieldName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        type:
+          type: string
+        title:
+          type: string
+        message:
+          type: string
+        entityType:
+          type: string
+        entityId:
+          type: string
+        read:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    APIKey:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        keyPrefix:
+          type: string
+          description: First 8 characters of the key for identification
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/APIPermission'
+        expiresAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+security:
+  - apiKey: []
+  - userId: []
