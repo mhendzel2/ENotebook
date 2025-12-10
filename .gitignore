@@ -3,7 +3,9 @@ dist
 build
 .env
 *.db
+*.db-journal
 *.sqlite
+
 *.sqlite3
 *.log
 .DS_Store
