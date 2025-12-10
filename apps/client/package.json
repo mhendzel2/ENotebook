@@ -1,0 +1,31 @@
+{
+  "name": "@eln/client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "concurrently \"npm:dev:renderer\" \"npm:dev:main\"",
+    "dev:renderer": "vite --config vite.renderer.config.ts",
+    "dev:main": "ts-node ./src/main.ts",
+    "build": "vite build --config vite.renderer.config.ts && tsc -p tsconfig.main.json",
+    "lint": "echo \"(lint client)\""
+  },
+  "dependencies": {
+    "@eln/shared": "workspace:*",
+    "electron": "^28.2.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "uuid": "^9.0.1",
+    "zustand": "^4.4.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "@types/react": "^18.2.37",
+    "@types/react-dom": "^18.2.15",
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "ts-node": "^10.9.2",
+    "vite": "^5.0.8"
+  }
+}

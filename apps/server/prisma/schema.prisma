@@ -1,0 +1,133 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = env("DB_PROVIDER") // set to "postgresql" for central server or "sqlite" for local testing
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(uuid())
+  name        String
+  email       String?  @unique
+  role        Role
+  passwordHash String
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  devices     Device[]
+  methods     Method[] @relation("MethodCreator")
+  experiments Experiment[]
+}
+
+model Device {
+  id         String   @id @default(uuid())
+  name       String?
+  lastSeenAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id])
+  userId     String
+
+  syncState  SyncState?
+}
+
+model Method {
+  id          String   @id @default(uuid())
+  title       String
+  category    String?
+  steps       Json
+  reagents    Json?
+  attachments Json?
+  createdBy   String?
+  creator     User?    @relation("MethodCreator", fields: [createdBy], references: [id])
+  version     Int      @default(1)
+  updatedAt   DateTime @updatedAt
+  isPublic    Boolean  @default(true)
+
+  experiments Experiment[] @relation("ExperimentProtocol")
+  attachmentsRef Attachment[]
+}
+
+model Experiment {
+  id             String   @id @default(uuid())
+  title          String
+  project        String?
+  modality       Modality
+  protocolRef    String?
+  protocol       Method?  @relation("ExperimentProtocol", fields: [protocolRef], references: [id])
+  params         Json?
+  observations   Json?
+  resultsSummary String?
+  dataLink       String?
+  tags           String[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  version        Int      @default(1)
+
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+
+  revisions   ExperimentRevision[]
+  attachments Attachment[]
+}
+
+model ExperimentRevision {
+  id           Int      @id @default(autoincrement())
+  experiment   Experiment @relation(fields: [experimentId], references: [id])
+  experimentId String
+  version      Int
+  author       User?    @relation(fields: [authorId], references: [id])
+  authorId     String?
+  notes        String?
+  createdAt    DateTime @default(now())
+}
+
+model Attachment {
+  id           String   @id @default(uuid())
+  filename     String
+  mime         String?
+  size         Int?
+  blobPath     String?
+  dataLink     String?
+  createdAt    DateTime @default(now())
+
+  experiment   Experiment? @relation(fields: [experimentId], references: [id])
+  experimentId String?
+
+  method       Method? @relation(fields: [methodId], references: [id])
+  methodId     String?
+}
+
+model SyncState {
+  deviceId      String  @id
+  device        Device  @relation(fields: [deviceId], references: [id])
+  lastPulledAt  DateTime?
+  lastPushedAt  DateTime?
+  status        String?
+  error         String?
+}
+
+model ChangeLog {
+  id         String   @id @default(uuid())
+  device     Device?  @relation(fields: [deviceId], references: [id])
+  deviceId   String?
+  entityType String
+  entityId   String
+  operation  String
+  version    Int?
+  createdAt  DateTime @default(now())
+}
+
+enum Role {
+  manager
+  member
+  admin
+}
+
+enum Modality {
+  fluorescence
+  electron_microscopy
+  biophysical
+  molecular_biology
+  biochemistry
+}

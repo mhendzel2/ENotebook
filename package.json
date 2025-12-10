@@ -1,0 +1,21 @@
+{
+  "name": "electronic-lab-notebook",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@10.2.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:client": "npm --workspace apps/client run dev",
+    "dev:server": "npm --workspace apps/server run dev",
+    "build": "npm --workspaces run build",
+    "lint": "npm --workspaces run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md,sql}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.2.5",
+    "typescript": "^5.3.3"
+  }
+}
