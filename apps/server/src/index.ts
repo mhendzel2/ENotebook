@@ -3,19 +3,21 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import crypto from 'crypto';
+import http from 'http';
 import { z } from 'zod';
 import { v4 as uuid } from 'uuid';
-import { PrismaClient, Prisma } from '@prisma/client';
-import {
-  MODALITIES,
-  INVENTORY_CATEGORIES,
-  STOCK_STATUSES,
-  EXPERIMENT_STATUSES,
-  SIGNATURE_TYPES,
-  type Role
-} from './shared.js';
-import { createApiKeyRoutes } from './middleware/apiKey.js';
+import { PrismaClient } from '@prisma/client';
+import { 
+  Experiment, Method, User, Role, 
+  MODALITIES, INVENTORY_CATEGORIES, STOCK_STATUSES, EXPERIMENT_STATUSES, SIGNATURE_TYPES 
+} from '@eln/shared';
+import { createApiKeyRoutes, apiKeyAuth, requirePermission as apiKeyRequirePermission } from './middleware/apiKey.js';
 import { createExportRoutes } from './routes/export.js';
+import { requirePermission, requireAllPermissions } from './middleware/permissions.js';
+import { createSignatureRoutes, SignatureService } from './services/signatures.js';
+import { createAuditRoutes, AuditTrailService } from './services/auditTrail.js';
+import { createElnExportRoutes } from './services/elnExport.js';
+import { CollaborationManager } from './services/websocket.js';
 
 const prisma = new PrismaClient();
 
@@ -28,6 +30,15 @@ type ChangeLogRecord = Awaited<ReturnType<typeof prisma.changeLog.findMany>>[num
 type UserRecord = Awaited<ReturnType<typeof prisma.user.findMany>>[number];
 
 const app = express();
+const server = http.createServer(app);
+
+// Initialize WebSocket collaboration
+const collaboration = new CollaborationManager(server, prisma);
+
+// Initialize services
+const auditService = new AuditTrailService(prisma);
+const signatureService = new SignatureService(prisma);
+
 app.use(express.json({ limit: '10mb' }));
 app.use(cors());
 app.use(helmet());
@@ -94,7 +105,7 @@ app.use(async (req, res, next) => {
 });
 
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', time: new Date().toISOString() });
+  res.json({ status: 'ok', time: new Date().toISOString(), websocket: true });
 });
 
 // ==================== API KEY MANAGEMENT ====================
@@ -102,6 +113,15 @@ app.use(createApiKeyRoutes(prisma));
 
 // ==================== DATA EXPORT ====================
 app.use(createExportRoutes(prisma));
+
+// ==================== ELECTRONIC SIGNATURES ====================
+app.use(createSignatureRoutes(prisma));
+
+// ==================== AUDIT TRAIL ====================
+app.use(createAuditRoutes(prisma));
+
+// ==================== ELN EXPORT (RO-CRATE/.eln) ====================
+app.use(createElnExportRoutes(prisma));
 
 const methodSchema = z.object({
   title: z.string().min(1),
@@ -399,9 +419,10 @@ app.get('/sync/pull', async (_req, res) => {
 });
 
 const port = process.env.PORT || 4000;
-app.listen(port, () => {
+server.listen(port, () => {
   // eslint-disable-next-line no-console
   console.log(`ELN server listening on http://localhost:${port}`);
+  console.log(`WebSocket server ready for real-time collaboration`);
 });
 
 // Small helper for role checks if needed later.
@@ -411,6 +432,8 @@ function requireRole(user: UserRecord, roles: Role[]) {
   }
 }
 
+// Export collaboration manager for use in routes
+export { collaboration };
 // ==================== INVENTORY MANAGEMENT ====================
 
 const locationSchema = z.object({
