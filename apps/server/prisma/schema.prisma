@@ -85,6 +85,7 @@ model Experiment {
   signatures     Signature[]
   comments       Comment[]
   stockUsages    ExperimentStock[]
+  poolUsages     PoolUsage[]
 }
 
 model ExperimentRevision {
@@ -189,7 +190,8 @@ model Stock {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  experimentUsages ExperimentStock[]
+  experimentUsages  ExperimentStock[]
+  poolContributions PoolContribution[]
 }
 
 model ExperimentStock {
@@ -291,6 +293,164 @@ model Webhook {
   failureCount Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+// ==================== AUTOMATION WORKFLOWS ====================
+
+model Workflow {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  trigger     String   // JSON: type, conditions, entityType, etc.
+  steps       String   // JSON array of workflow steps
+  enabled     Boolean  @default(true)
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  executions  WorkflowExecution[]
+}
+
+model WorkflowExecution {
+  id           String   @id @default(uuid())
+  workflow     Workflow @relation(fields: [workflowId], references: [id])
+  workflowId   String
+  triggeredBy  String?  // Entity that triggered the workflow
+  triggerData  String?  // JSON: Data from the trigger event
+  status       String   @default("pending") // pending, running, completed, failed
+  startedAt    DateTime @default(now())
+  completedAt  DateTime?
+  error        String?
+  stepResults  String?  // JSON array of step execution results
+}
+
+// ==================== LABELS & BARCODES ====================
+
+model LabelTemplate {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  entityType  String   // inventory, stock, sample, equipment, experiment
+  format      String   // qrcode, barcode128, datamatrix, etc.
+  width       Float    // in mm
+  height      Float    // in mm
+  content     String   // JSON: template layout and fields
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  labels      Label[]
+}
+
+model Label {
+  id           String   @id @default(uuid())
+  template     LabelTemplate @relation(fields: [templateId], references: [id])
+  templateId   String
+  entityType   String   // What this label is attached to
+  entityId     String   // ID of the entity
+  barcodeData  String   // The encoded data
+  printedAt    DateTime?
+  printedBy    String?
+  createdAt    DateTime @default(now())
+  
+  scanEvents   ScanEvent[]
+}
+
+model ScanEvent {
+  id         String   @id @default(uuid())
+  label      Label    @relation(fields: [labelId], references: [id])
+  labelId    String
+  scannedBy  String   // User ID
+  scannedAt  DateTime @default(now())
+  action     String?  // Action taken after scan (e.g., "consume", "link_experiment")
+  context    String?  // JSON: Additional context like experiment ID, quantity used
+}
+
+// ==================== DASHBOARDS & ANALYTICS ====================
+
+model Dashboard {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  layout      String   // JSON: Grid layout configuration
+  isPublic    Boolean  @default(false)
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  widgets     DashboardWidget[]
+}
+
+model DashboardWidget {
+  id           String   @id @default(uuid())
+  dashboard    Dashboard @relation(fields: [dashboardId], references: [id])
+  dashboardId  String
+  name         String
+  type         String   // chart_bar, chart_line, chart_pie, chart_scatter, table, metric, sql
+  config       String   // JSON: chart options, colors, etc.
+  query        String?  // SQL query or predefined query ID
+  position     String   // JSON: {x, y, w, h} for grid position
+  refreshRate  Int?     // Refresh interval in seconds
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model SavedQuery {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  query       String   // SQL query
+  parameters  String?  // JSON array of parameter definitions
+  createdBy   String
+  isPublic    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ==================== SAMPLE POOLING ====================
+
+model SamplePool {
+  id           String   @id @default(uuid())
+  name         String
+  description  String?
+  purpose      String?  // e.g., "buffer_formulation", "high_throughput_assay", "dilution_series"
+  totalVolume  Float?   // Total volume after pooling
+  unit         String?  // Volume unit (ml, ul, etc.)
+  status       String   @default("active") // active, consumed, disposed
+  createdBy    String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  contributions PoolContribution[]
+  usages        PoolUsage[]
+}
+
+model PoolContribution {
+  id             String   @id @default(uuid())
+  pool           SamplePool @relation(fields: [poolId], references: [id])
+  poolId         String
+  stock          Stock    @relation(fields: [stockId], references: [id])
+  stockId        String
+  volumeAdded    Float    // Amount contributed from this stock
+  unit           String   // Volume unit
+  concentration  Float?   // Concentration at time of contribution
+  addedAt        DateTime @default(now())
+  addedBy        String
+  notes          String?
+}
+
+model PoolUsage {
+  id             String   @id @default(uuid())
+  pool           SamplePool @relation(fields: [poolId], references: [id])
+  poolId         String
+  volumeUsed     Float
+  unit           String
+  purpose        String?
+  experiment     Experiment? @relation(fields: [experimentId], references: [id])
+  experimentId   String?
+  usedAt         DateTime @default(now())
+  usedBy         String
+  notes          String?
 }
 
 // Enums removed for SQLite compatibility

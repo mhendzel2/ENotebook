@@ -13,11 +13,17 @@ import {
 } from '@eln/shared';
 import { createApiKeyRoutes, apiKeyAuth, requirePermission as apiKeyRequirePermission } from './middleware/apiKey.js';
 import { createExportRoutes } from './routes/export.js';
+import { createAuthRoutes } from './routes/auth.js';
 import { requirePermission, requireAllPermissions } from './middleware/permissions.js';
 import { createSignatureRoutes, SignatureService } from './services/signatures.js';
 import { createAuditRoutes, AuditTrailService } from './services/auditTrail.js';
 import { createElnExportRoutes } from './services/elnExport.js';
 import { CollaborationManager } from './services/websocket.js';
+// New Labguru-style feature imports
+import { WorkflowEngine, createWorkflowRoutes } from './services/workflows.js';
+import { LabelService, createLabelRoutes } from './services/labels.js';
+import { DashboardService, createDashboardRoutes } from './services/dashboard.js';
+import { SamplePoolService, createPoolRoutes } from './services/pools.js';
 
 const prisma = new PrismaClient();
 
@@ -31,15 +37,24 @@ const collaboration = new CollaborationManager(server, prisma);
 const auditService = new AuditTrailService(prisma);
 const signatureService = new SignatureService(prisma);
 
+// Initialize new Labguru-style services
+const workflowEngine = new WorkflowEngine(prisma);
+const labelService = new LabelService(prisma);
+const dashboardService = new DashboardService(prisma);
+const poolService = new SamplePoolService(prisma);
+
 app.use(express.json({ limit: '10mb' }));
 app.use(cors());
 app.use(helmet());
 app.use(morgan('dev'));
 
+// Auth routes (no authentication required)
+app.use(createAuthRoutes(prisma));
+
 // Simple header-based auth stub with API key fallback.
 app.use(async (req, res, next) => {
-  // Skip auth for health check
-  if (req.path === '/health') {
+  // Skip auth for health check and auth routes
+  if (req.path === '/health' || req.path.startsWith('/api/auth')) {
     return next();
   }
   
@@ -114,6 +129,18 @@ app.use(createAuditRoutes(prisma));
 
 // ==================== ELN EXPORT (RO-CRATE/.eln) ====================
 app.use(createElnExportRoutes(prisma));
+
+// ==================== AUTOMATION WORKFLOWS ====================
+app.use(createWorkflowRoutes(prisma, workflowEngine));
+
+// ==================== LABEL GENERATION & SCANNING ====================
+app.use(createLabelRoutes(prisma, labelService));
+
+// ==================== DASHBOARDS & VISUALIZATIONS ====================
+app.use(createDashboardRoutes(prisma, dashboardService));
+
+// ==================== SAMPLE POOLING ====================
+app.use(createPoolRoutes(prisma, poolService));
 
 const methodSchema = z.object({
   title: z.string().min(1),
