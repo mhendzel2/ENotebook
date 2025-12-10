@@ -7,7 +7,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
-import { API_PERMISSIONS, APIPermission } from '@eln/shared';
+import { API_PERMISSIONS, APIPermission } from '../shared.js';
 
 const router = Router();
 
@@ -154,7 +154,7 @@ export function createApiKeyRoutes(prisma: PrismaClient): Router {
     
     try {
       const keys = await prisma.aPIKey.findMany({
-        where: { 
+        where: {
           userId: user.id,
           revokedAt: null
         },
@@ -170,7 +170,7 @@ export function createApiKeyRoutes(prisma: PrismaClient): Router {
         orderBy: { createdAt: 'desc' }
       });
 
-      res.json(keys.map(k => ({
+      res.json(keys.map((k: typeof keys[number]) => ({
         ...k,
         permissions: JSON.parse(k.permissions)
       })));
@@ -262,9 +262,13 @@ const rateLimitStore = new Map<string, RateLimitEntry>();
 
 export function rateLimit(options: { windowMs: number; max: number }) {
   return (req: Request, res: Response, next: NextFunction) => {
-    const key = req.apiKey?.id || req.header('x-user-id') || req.ip;
+    const rawKey = req.apiKey?.id ?? req.header('x-user-id') ?? req.ip;
+    const key = Array.isArray(rawKey) ? rawKey[0] : rawKey;
+    if (!key) {
+      return res.status(400).json({ error: 'Unable to identify requester' });
+    }
     const now = Date.now();
-    
+
     let entry = rateLimitStore.get(key);
     
     if (!entry || now > entry.resetAt) {
