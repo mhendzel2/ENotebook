@@ -14,6 +14,7 @@ import {
 import { createApiKeyRoutes, apiKeyAuth, requirePermission as apiKeyRequirePermission } from './middleware/apiKey.js';
 import { createExportRoutes } from './routes/export.js';
 import { createAuthRoutes } from './routes/auth.js';
+import { createAttachmentRoutes } from './routes/attachments.js';
 import { requirePermission, requireAllPermissions } from './middleware/permissions.js';
 import { createSignatureRoutes, SignatureService } from './services/signatures.js';
 import { createAuditRoutes, AuditTrailService } from './services/auditTrail.js';
@@ -133,6 +134,9 @@ app.use(createAuditRoutes(prisma));
 
 // ==================== ELN EXPORT (RO-CRATE/.eln) ====================
 app.use(createElnExportRoutes(prisma));
+
+// ==================== ATTACHMENTS (IMAGES, SPREADSHEETS) ====================
+app.use(createAttachmentRoutes(prisma));
 
 // ==================== AUTOMATION WORKFLOWS ====================
 app.use(createWorkflowRoutes(prisma, workflowEngine));

@@ -340,7 +340,15 @@ export interface ObservationTable {
   id: string;
   title: string;
   columns: TableColumn[];
-  rows: Record<string, unknown>[];
+  rows: ObservationTableRow[];
+  createdAt?: string;
+}
+
+export interface ObservationTableRow {
+  _id: string;
+  _addedAt: string;
+  _addedBy?: string;
+  [key: string]: unknown;
 }
 
 export interface TableColumn {
