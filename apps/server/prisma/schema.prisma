@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite" // set to "postgresql" for central server or "sqlite" for local testing
+  provider = "postgresql" // set to "postgresql" for central server or "sqlite" for local testing
   url      = env("DATABASE_URL")
 }
 
@@ -11,7 +11,7 @@ model User {
   id          String   @id @default(uuid())
   name        String
   email       String?  @unique
-  role        String   // SQLite does not support enums
+  role        Role
   passwordHash String
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
@@ -42,9 +42,9 @@ model Method {
   id             String   @id @default(uuid())
   title          String
   category       String?
-  steps          String   // SQLite does not support Json
-  reagents       String?  // SQLite does not support Json
-  attachments    String?  // SQLite does not support Json
+  steps          Json
+  reagents       Json?
+  attachments    Json?
   createdBy      String?
   creator        User?    @relation("MethodCreator", fields: [createdBy], references: [id])
   version        Int      @default(1)
@@ -64,14 +64,14 @@ model Experiment {
   id             String   @id @default(uuid())
   title          String
   project        String?
-  modality       String   // SQLite does not support enums
+  modality       Modality
   protocolRef    String?
   protocol       Method?  @relation("ExperimentProtocol", fields: [protocolRef], references: [id])
-  params         String?  // SQLite does not support Json
-  observations   String?  // SQLite does not support Json
+  params         Json?
+  observations   Json?
   resultsSummary String?
   dataLink       String?
-  tags           String   // SQLite does not support arrays, store as JSON string or comma-separated
+  tags           String[]
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   version        Int      @default(1)
@@ -499,18 +499,17 @@ model EquipmentBooking {
   createdAt    DateTime @default(now())
 }
 
-// Enums removed for SQLite compatibility
-// enum Role {
-//   manager
-//   member
-//   admin
-// }
+enum Role {
+  manager
+  member
+  admin
+}
 
-// enum Modality {
-//   fluorescence
-//   electron_microscopy
-//   biophysical
-//   molecular_biology
-//   biochemistry
-//   flow_cytometry
-// }
+enum Modality {
+  fluorescence
+  electron_microscopy
+  biophysical
+  molecular_biology
+  biochemistry
+  flow_cytometry
+}
