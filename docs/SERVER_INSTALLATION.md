@@ -4,29 +4,12 @@ This guide provides detailed instructions for installing and configuring the dat
 
 ## Table of Contents
 
-1. [Choose Your Database](#choose-your-database)
-2. [PostgreSQL Installation (Recommended)](#postgresql-installation-recommended)
-3. [MySQL Installation (Alternative)](#mysql-installation-alternative)
-4. [Post-Installation Steps](#post-installation-steps)
-5. [Firewall Configuration](#firewall-configuration)
-6. [Client Workstation Setup](#client-workstation-setup)
-7. [Backup and Maintenance](#backup-and-maintenance)
-8. [Troubleshooting](#troubleshooting)
-
----
-
-## Choose Your Database
-
-| Feature | PostgreSQL | MySQL |
-|---------|------------|-------|
-| **Recommended** | ✅ Yes | No |
-| JSON Support | Native JSONB | JSON type |
-| Array Support | Native | Via JSON |
-| Full-Text Search | Built-in | Built-in |
-| Windows Support | Excellent | Excellent |
-| Performance | Excellent | Good |
-
-**Recommendation:** Use PostgreSQL for better JSON handling and array support.
+1. [PostgreSQL Installation](#postgresql-installation-recommended)
+2. [Post-Installation Steps](#post-installation-steps)
+3. [Firewall Configuration](#firewall-configuration)
+4. [Client Workstation Setup](#client-workstation-setup)
+5. [Backup and Maintenance](#backup-and-maintenance)
+6. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -126,103 +109,6 @@ If client workstations will connect directly to the database:
 
 ---
 
-## MySQL Installation (Alternative)
-
-### Step 1: Download MySQL
-
-1. Go to: https://dev.mysql.com/downloads/installer/
-2. Download "MySQL Installer for Windows"
-3. Choose the full installer (mysql-installer-community-X.X.X.msi)
-
-### Step 2: Run the Installer
-
-1. Run the downloaded `.msi` file as Administrator
-2. Choose **Custom** setup type
-3. Select these products:
-   - ✅ MySQL Server 8.x
-   - ✅ MySQL Workbench (GUI management tool)
-   - ✅ MySQL Shell
-4. Click **Next** and **Execute** to install
-
-### Step 3: Configure MySQL Server
-
-1. **Type and Networking:**
-   - Config Type: Development Computer (for lab servers)
-   - Or: Server Computer (for dedicated servers)
-   - Port: 3306 (default)
-   - ✅ Open Windows Firewall port
-
-2. **Authentication Method:**
-   - Choose "Use Strong Password Encryption" (recommended)
-
-3. **Accounts and Roles:**
-   - Set a strong root password
-   - **IMPORTANT:** Remember this password!
-
-4. **Windows Service:**
-   - ✅ Configure MySQL Server as a Windows Service
-   - Service Name: MySQL80
-   - ✅ Start the MySQL Server at System Startup
-
-5. Click **Execute** to apply configuration
-
-### Step 4: Create the ELN Database
-
-Open **MySQL Workbench** or **MySQL Shell**:
-
-#### Using MySQL Workbench:
-1. Open MySQL Workbench
-2. Connect to your local instance
-3. Run this SQL script:
-
-```sql
--- Create the database
-CREATE DATABASE eln_production CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- Create a dedicated user
-CREATE USER 'eln_admin'@'localhost' IDENTIFIED BY 'your_secure_password_here';
-
--- Grant privileges
-GRANT ALL PRIVILEGES ON eln_production.* TO 'eln_admin'@'localhost';
-
--- For remote access (optional)
-CREATE USER 'eln_admin'@'%' IDENTIFIED BY 'your_secure_password_here';
-GRANT ALL PRIVILEGES ON eln_production.* TO 'eln_admin'@'%';
-
--- Apply changes
-FLUSH PRIVILEGES;
-```
-
-#### Using Command Line:
-```powershell
-# Open PowerShell
-mysql -u root -p
-
-# Enter your root password when prompted
-# Then run the SQL commands above
-```
-
-### Step 5: Configure Remote Access (Optional)
-
-1. Find `my.ini`:
-   ```
-   C:\ProgramData\MySQL\MySQL Server 8.0\my.ini
-   ```
-2. Find the line:
-   ```
-   bind-address = 127.0.0.1
-   ```
-3. Change to:
-   ```
-   bind-address = 0.0.0.0
-   ```
-4. Restart MySQL service:
-   ```powershell
-   Restart-Service MySQL80
-   ```
-
----
-
 ## Post-Installation Steps
 
 ### Step 1: Verify Database Connection
@@ -234,13 +120,6 @@ Test your database connection:
 psql -h localhost -U eln_admin -d eln_production
 # Enter password when prompted
 # You should see: eln_production=>
-```
-
-#### MySQL:
-```powershell
-mysql -h localhost -u eln_admin -p eln_production
-# Enter password when prompted
-# You should see: mysql>
 ```
 
 ### Step 2: Run the Server Installation
@@ -286,8 +165,6 @@ New-NetFirewallRule -DisplayName "ELN Server" -Direction Inbound -Protocol TCP -
 # For PostgreSQL (if direct DB access needed)
 New-NetFirewallRule -DisplayName "PostgreSQL" -Direction Inbound -Protocol TCP -LocalPort 5432 -Action Allow
 
-# For MySQL (if direct DB access needed)
-New-NetFirewallRule -DisplayName "MySQL" -Direction Inbound -Protocol TCP -LocalPort 3306 -Action Allow
 ```
 
 ### Network Discovery
@@ -347,21 +224,12 @@ Run on the client:
    - Action: Start a program
    - Program: `C:\path\to\ENotebook\backup-database.bat`
 
-#### MySQL - Windows Task Scheduler:
-
-Same as above, using the `backup-database.bat` script.
-
 ### Manual Backup Commands
 
 #### PostgreSQL:
 ```powershell
 $env:PGPASSWORD = "your_password"
 pg_dump -h localhost -U eln_admin -d eln_production -F c -f "backup_$(Get-Date -Format 'yyyyMMdd_HHmmss').backup"
-```
-
-#### MySQL:
-```powershell
-mysqldump -h localhost -u eln_admin -p eln_production > "backup_$(Get-Date -Format 'yyyyMMdd_HHmmss').sql"
 ```
 
 ### Restore from Backup
@@ -372,11 +240,6 @@ $env:PGPASSWORD = "your_password"
 pg_restore -h localhost -U eln_admin -d eln_production -c backup_file.backup
 ```
 
-#### MySQL:
-```powershell
-mysql -h localhost -u eln_admin -p eln_production < backup_file.sql
-```
-
 ---
 
 ## Troubleshooting
@@ -385,24 +248,20 @@ mysql -h localhost -u eln_admin -p eln_production < backup_file.sql
 
 #### "Connection refused" error
 
-1. Check if database service is running:
+1. Check if the PostgreSQL service is running:
    ```powershell
-   # PostgreSQL
    Get-Service postgresql*
-   
-   # MySQL
-   Get-Service MySQL*
    ```
 
 2. Start the service if stopped:
    ```powershell
-   Start-Service postgresql-x64-16  # or MySQL80
+   Start-Service postgresql-x64-16
    ```
 
 #### "Authentication failed" error
 
 1. Verify username and password
-2. Check `pg_hba.conf` (PostgreSQL) or user privileges (MySQL)
+2. Check `pg_hba.conf` for allowed hosts and authentication
 3. Try connecting locally first
 
 #### "Database does not exist" error
@@ -460,7 +319,6 @@ mysql -h localhost -u eln_admin -p eln_production < backup_file.sql
 |-----------|--------------|-------------|
 | ELN Server | 4000 | `apps/server/.env` |
 | PostgreSQL | 5432 | `postgresql.conf`, `pg_hba.conf` |
-| MySQL | 3306 | `my.ini` |
 
 | Script | Purpose |
 |--------|---------|

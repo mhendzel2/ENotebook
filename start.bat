@@ -23,7 +23,6 @@ if exist "config.local.json" (
 ) 
 if defined DB_TYPE (
     if /i "%DB_TYPE%"=="postgresql" set MODE=server
-    if /i "%DB_TYPE%"=="mysql" set MODE=server
 )
 if "%DB_TYPE%"=="" (
     if exist "apps\server\prisma\dev.db" set MODE=local

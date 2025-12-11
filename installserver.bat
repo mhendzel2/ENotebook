@@ -54,20 +54,15 @@ echo ============================================
 echo    Database Configuration
 echo ============================================
 echo.
-echo This server installation supports PostgreSQL (recommended) or MySQL.
+echo This server installation supports PostgreSQL (recommended).
 echo.
 
-set /p DB_TYPE="Enter database type (postgresql/mysql) [postgresql]: "
-if "%DB_TYPE%"=="" set DB_TYPE=postgresql
+set DB_TYPE=postgresql
 
 set /p DB_HOST="Enter database host [localhost]: "
 if "%DB_HOST%"=="" set DB_HOST=localhost
 
-if "%DB_TYPE%"=="postgresql" (
-    set DEFAULT_PORT=5432
-) else (
-    set DEFAULT_PORT=3306
-)
+set DEFAULT_PORT=5432
 
 set /p DB_PORT="Enter database port [%DEFAULT_PORT%]: "
 if "%DB_PORT%"=="" set DB_PORT=%DEFAULT_PORT%
@@ -148,20 +143,13 @@ cd ..\..
 echo [OK] Shared package built.
 echo.
 
-:: Configure server for PostgreSQL/MySQL
+:: Configure server for PostgreSQL
 echo [STEP 4/8] Configuring server for %DB_TYPE%...
 cd apps\server
 
-:: Update Prisma schema for PostgreSQL
-if "%DB_TYPE%"=="postgresql" (
-    echo Updating Prisma schema for PostgreSQL...
-    powershell -Command "(Get-Content prisma\schema.prisma) -replace 'provider = \"sqlite\"', 'provider = \"postgresql\"' | Set-Content prisma\schema.prisma"
-    set DATABASE_URL=postgresql://%DB_USER%:%DB_PASSWORD%@%DB_HOST%:%DB_PORT%/%DB_NAME%?schema=public
-) else (
-    echo Updating Prisma schema for MySQL...
-    powershell -Command "(Get-Content prisma\schema.prisma) -replace 'provider = \"sqlite\"', 'provider = \"mysql\"' | Set-Content prisma\schema.prisma"
-    set DATABASE_URL=mysql://%DB_USER%:%DB_PASSWORD%@%DB_HOST%:%DB_PORT%/%DB_NAME%
-)
+echo Updating Prisma schema for PostgreSQL...
+powershell -Command "(Get-Content prisma\schema.prisma) -replace 'provider = \"sqlite\"', 'provider = \"postgresql\"' | Set-Content prisma\schema.prisma"
+set DATABASE_URL=postgresql://%DB_USER%:%DB_PASSWORD%@%DB_HOST%:%DB_PORT%/%DB_NAME%?schema=public
 
 :: Create .env file
 echo Creating .env configuration file...
@@ -204,14 +192,9 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
-:: Install database-specific driver
-if "%DB_TYPE%"=="postgresql" (
-    echo Installing PostgreSQL driver...
-    call npm install pg
-) else (
-    echo Installing MySQL driver...
-    call npm install mysql2
-)
+:: Install database driver
+echo Installing PostgreSQL driver...
+call npm install pg
 
 echo [OK] Server dependencies installed.
 echo.
@@ -221,16 +204,9 @@ echo [STEP 6/8] Running database migrations...
 echo.
 echo [INFO] Make sure your %DB_TYPE% database is running and the database '%DB_NAME%' exists.
 echo [INFO] If the database doesn't exist, create it with:
-if "%DB_TYPE%"=="postgresql" (
-    echo        psql -U postgres -c "CREATE DATABASE %DB_NAME%;"
-    echo        psql -U postgres -c "CREATE USER %DB_USER% WITH PASSWORD '%DB_PASSWORD%';"
-    echo        psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE %DB_NAME% TO %DB_USER%;"
-) else (
-    echo        mysql -u root -p -e "CREATE DATABASE %DB_NAME%;"
-    echo        mysql -u root -p -e "CREATE USER '%DB_USER%'@'localhost' IDENTIFIED BY '%DB_PASSWORD%';"
-    echo        mysql -u root -p -e "GRANT ALL PRIVILEGES ON %DB_NAME%.* TO '%DB_USER%'@'localhost';"
-    echo        mysql -u root -p -e "FLUSH PRIVILEGES;"
-)
+echo        psql -U postgres -c "CREATE DATABASE %DB_NAME%;"
+echo        psql -U postgres -c "CREATE USER %DB_USER% WITH PASSWORD '%DB_PASSWORD%';"
+echo        psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE %DB_NAME% TO %DB_USER%;"
 echo.
 
 set /p DB_READY="Is the database ready? (y/n) [y]: "
@@ -322,20 +298,12 @@ echo set TIMESTAMP=%%date:~-4%%%%date:~4,2%%%%date:~7,2%%_%%time:~0,2%%%%time:~3
 echo set TIMESTAMP=%%TIMESTAMP: =0%%
 echo if not exist "%%BACKUP_DIR%%" mkdir "%%BACKUP_DIR%%"
 echo echo Creating database backup...
-if "%DB_TYPE%"=="postgresql" (
 echo set PGPASSWORD=%DB_PASSWORD%
 echo pg_dump -h %DB_HOST% -p %DB_PORT% -U %DB_USER% -d %DB_NAME% -F c -f "%%BACKUP_DIR%%\eln_%%TIMESTAMP%%.backup"
-) else (
-echo mysqldump -h %DB_HOST% -P %DB_PORT% -u %DB_USER% -p%DB_PASSWORD% %DB_NAME% ^> "%%BACKUP_DIR%%\eln_%%TIMESTAMP%%.sql"
-)
 echo echo Backup saved to: %%BACKUP_DIR%%
 echo echo.
 echo :: Keep only last 14 backups
-if "%DB_TYPE%"=="postgresql" (
 echo for /f "skip=14 delims=" %%%%f in ('dir /b /o-d "%%BACKUP_DIR%%\eln_*.backup" 2^^^>nul'^) do del "%%BACKUP_DIR%%\%%%%f"
-) else (
-echo for /f "skip=14 delims=" %%%%f in ('dir /b /o-d "%%BACKUP_DIR%%\eln_*.sql" 2^^^>nul'^) do del "%%BACKUP_DIR%%\%%%%f"
-)
 echo pause
 ) > "%INSTALL_DIR%backup-database.bat"
 
@@ -350,12 +318,8 @@ echo echo Available backups:
 echo dir /b /o-d "%%~dp0data\backups\eln_*" 2^>nul
 echo echo.
 echo set /p BACKUP_FILE="Enter backup filename to restore: "
-if "%DB_TYPE%"=="postgresql" (
 echo set PGPASSWORD=%DB_PASSWORD%
 echo pg_restore -h %DB_HOST% -p %DB_PORT% -U %DB_USER% -d %DB_NAME% -c "%%~dp0data\backups\%%BACKUP_FILE%%"
-) else (
-echo mysql -h %DB_HOST% -P %DB_PORT% -u %DB_USER% -p%DB_PASSWORD% %DB_NAME% ^< "%%~dp0data\backups\%%BACKUP_FILE%%"
-)
 echo echo.
 echo echo Restore complete.
 echo pause

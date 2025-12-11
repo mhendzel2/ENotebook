@@ -164,6 +164,11 @@ const methodSchema = z.object({
   isPublic: z.boolean().default(true)
 });
 
+const methodUpdateSchema = methodSchema.partial().refine(
+  (val) => Object.keys(val).length > 0,
+  { message: 'At least one field must be provided for update' }
+);
+
 app.get('/methods', async (_req, res) => {
   try {
     const methods = await prisma.method.findMany();
@@ -210,6 +215,47 @@ app.post('/methods', async (req, res) => {
   }
 });
 
+app.patch('/methods/:id', async (req, res) => {
+  const user = (req as any).user as User;
+  const parse = methodUpdateSchema.safeParse(req.body);
+
+  if (!parse.success) {
+    return res.status(400).json({ error: parse.error.flatten() });
+  }
+
+  const methodId = req.params.id;
+
+  try {
+    const existing = await prisma.method.findUnique({ where: { id: methodId } });
+    if (!existing) return res.status(404).json({ error: 'Method not found' });
+
+    const canEdit = user.role === 'manager' || user.role === 'admin' || existing.createdBy === user.id;
+    if (!canEdit) return res.status(403).json({ error: 'Not authorized to edit this method' });
+
+    const { steps, reagents, attachments, ...rest } = parse.data;
+    const updateData: any = { ...rest };
+    if (steps !== undefined) updateData.steps = JSON.stringify(steps);
+    if (reagents !== undefined) updateData.reagents = reagents ? JSON.stringify(reagents) : undefined;
+    if (attachments !== undefined) updateData.attachments = attachments ? JSON.stringify(attachments) : undefined;
+    updateData.version = (existing.version || 1) + 1;
+
+    const updated = await prisma.method.update({ where: { id: methodId }, data: updateData });
+
+    const normalizeMethod = (m: any) => ({
+      ...m,
+      steps: m.steps ? JSON.parse(m.steps) : undefined,
+      reagents: m.reagents ? JSON.parse(m.reagents) : undefined,
+      attachments: m.attachments ? JSON.parse(m.attachments) : undefined
+    });
+
+    await logChange('methods', methodId, 'update', normalizeMethod(existing), normalizeMethod(updated));
+
+    res.json(normalizeMethod(updated));
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update method' });
+  }
+});
+
 const experimentSchema = z.object({
   title: z.string().min(1),
   project: z.string().optional(),
@@ -222,6 +268,11 @@ const experimentSchema = z.object({
   tags: z.array(z.string()).optional(),
   status: z.enum(EXPERIMENT_STATUSES).default('draft')
 });
+
+const experimentUpdateSchema = experimentSchema.partial().refine(
+  (val) => Object.keys(val).length > 0,
+  { message: 'At least one field must be provided for update' }
+);
 
 // 1. Replace GET /experiments with Prisma
 app.get('/experiments', async (req, res) => {
@@ -262,6 +313,48 @@ app.post('/experiments', async (req, res) => {
   }
 });
 
+app.patch('/experiments/:id', async (req, res) => {
+  const user = (req as any).user as User;
+  const parse = experimentUpdateSchema.safeParse(req.body);
+
+  if (!parse.success) {
+    return res.status(400).json({ error: parse.error.flatten() });
+  }
+
+  const experimentId = req.params.id;
+
+  try {
+    const existing = await prisma.experiment.findUnique({ where: { id: experimentId } });
+    if (!existing) return res.status(404).json({ error: 'Experiment not found' });
+
+    const canEdit = user.role === 'manager' || user.role === 'admin' || existing.userId === user.id;
+    if (!canEdit) return res.status(403).json({ error: 'Not authorized to edit this experiment' });
+
+    const { params, observations, tags, ...rest } = parse.data;
+    const updateData: any = { ...rest };
+    if (params !== undefined) updateData.params = params;
+    if (observations !== undefined) updateData.observations = observations;
+    if (tags !== undefined) updateData.tags = tags;
+    updateData.version = (existing.version || 1) + 1;
+
+    const updated = await prisma.experiment.update({ where: { id: experimentId }, data: updateData });
+
+    const normalizeExperiment = (exp: any) => ({
+      ...exp,
+      params: typeof exp.params === 'string' ? JSON.parse(exp.params) : exp.params,
+      observations: typeof exp.observations === 'string' ? JSON.parse(exp.observations) : exp.observations,
+      tags: Array.isArray(exp.tags) ? exp.tags : exp.tags ? JSON.parse(exp.tags) : []
+    });
+
+    await logChange('experiments', experimentId, 'update', normalizeExperiment(existing), normalizeExperiment(updated));
+
+    res.json(normalizeExperiment(updated));
+  } catch (error) {
+    console.error('Failed to update experiment:', error);
+    res.status(500).json({ error: 'Failed to update experiment' });
+  }
+});
+
 // Create experiment from method template
 app.post('/experiments/from-method/:methodId', async (req, res) => {
   const user = (req as any).user as User;
@@ -283,15 +376,15 @@ app.post('/experiments/from-method/:methodId', async (req, res) => {
         protocolRef: methodId,
         version: 1,
         status: 'draft',
-        observations: method.steps, // Copy steps as initial observations/checklist
-        tags: JSON.stringify([])
+        observations: method.steps ? (typeof method.steps === 'string' ? JSON.parse(method.steps) : method.steps) : undefined,
+        tags: []
       }
     });
 
     res.status(201).json({
       ...experiment,
-      observations: experiment.observations ? JSON.parse(experiment.observations) : undefined,
-      tags: experiment.tags ? JSON.parse(experiment.tags) : []
+      observations: experiment.observations,
+      tags: experiment.tags || []
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to create experiment from method' });
