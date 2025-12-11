@@ -227,17 +227,11 @@ const experimentSchema = z.object({
 app.get('/experiments', async (req, res) => {
   const user = (req as any).user as User;
   try {
-    const where = user.role === 'manager' ? {} : { userId: user.id };
+    const where = user.role === 'manager' || user.role === 'admin' ? {} : { userId: user.id };
     const data = await prisma.experiment.findMany({ where });
-    // Parse JSON fields
-    const parsedData = data.map(e => ({
-      ...e,
-      params: e.params ? JSON.parse(e.params) : undefined,
-      observations: e.observations ? JSON.parse(e.observations) : undefined,
-      tags: e.tags ? JSON.parse(e.tags) : []
-    }));
-    res.json(parsedData);
+    res.json(data);
   } catch (error) {
+    console.error('Failed to get experiments:', error);
     res.status(500).json({ error: 'Database error' });
   }
 });
@@ -252,24 +246,18 @@ app.post('/experiments', async (req, res) => {
   }
 
   try {
-    const { params, observations, tags, ...rest } = parse.data;
+    const { tags, ...rest } = parse.data;
     const experiment = await prisma.experiment.create({
       data: {
         userId: user.id,
         version: 1,
         ...rest,
-        params: params ? JSON.stringify(params) : undefined,
-        observations: observations ? JSON.stringify(observations) : undefined,
-        tags: tags ? JSON.stringify(tags) : JSON.stringify([])
+        tags: tags || []
       }
     });
-    res.status(201).json({
-      ...experiment,
-      params: experiment.params ? JSON.parse(experiment.params) : undefined,
-      observations: experiment.observations ? JSON.parse(experiment.observations) : undefined,
-      tags: experiment.tags ? JSON.parse(experiment.tags) : []
-    });
+    res.status(201).json(experiment);
   } catch (error) {
+    console.error('Failed to create experiment:', error);
     res.status(500).json({ error: 'Failed to save experiment' });
   }
 });

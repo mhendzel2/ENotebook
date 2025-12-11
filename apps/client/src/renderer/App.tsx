@@ -134,7 +134,7 @@ function App() {
         </div>
       </aside>
       <main style={styles.main}>
-        {tab === 'dashboard' && <DashboardPanel methods={methods} experiments={experiments} user={user!} />}
+        {tab === 'dashboard' && <DashboardPanel methods={methods} experiments={experiments} user={user!} onNavigate={setTab} />}
         {tab === 'methods' && <MethodsPanel methods={methods} onRefresh={fetchData} user={user!} />}
         {tab === 'experiments' && <ExperimentsPanel experiments={experiments} methods={methods} onRefresh={fetchData} user={user!} />}
         {tab === 'inventory' && <InventoryPanel user={user!} />}
@@ -149,7 +149,7 @@ function App() {
 }
 
 // Dashboard Panel
-function DashboardPanel({ methods, experiments, user }: { methods: Method[]; experiments: Experiment[]; user: AuthUser }) {
+function DashboardPanel({ methods, experiments, user, onNavigate }: { methods: Method[]; experiments: Experiment[]; user: AuthUser; onNavigate: (tab: NavTab) => void }) {
   const stats = useMemo(() => ({
     totalMethods: methods.length,
     totalExperiments: experiments.length,
@@ -188,10 +188,10 @@ function DashboardPanel({ methods, experiments, user }: { methods: Method[]; exp
         <div style={styles.section}>
           <h3 style={styles.sectionTitle}>Quick Actions</h3>
           <div style={styles.quickActions}>
-            <QuickActionButton icon="➕" label="New Experiment" />
-            <QuickActionButton icon="📋" label="New Method" />
-            <QuickActionButton icon="📦" label="Add Stock" />
-            <QuickActionButton icon="📊" label="Run Report" />
+            <QuickActionButton icon="➕" label="New Experiment" onClick={() => onNavigate('experiments')} />
+            <QuickActionButton icon="📋" label="New Method" onClick={() => onNavigate('methods')} />
+            <QuickActionButton icon="📦" label="Add Stock" onClick={() => onNavigate('inventory')} />
+            <QuickActionButton icon="📊" label="Run Report" onClick={() => onNavigate('analytics')} />
           </div>
         </div>
       </div>
@@ -202,6 +202,41 @@ function DashboardPanel({ methods, experiments, user }: { methods: Method[]; exp
 // Methods Panel
 function MethodsPanel({ methods, onRefresh, user }: { methods: Method[]; onRefresh: () => void; user: AuthUser }) {
   const [showForm, setShowForm] = useState(false);
+  const [selectedMethod, setSelectedMethod] = useState<Method | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'view' | 'edit'>('list');
+
+  const handleView = (method: Method) => {
+    setSelectedMethod(method);
+    setViewMode('view');
+  };
+
+  const handleEdit = (method: Method) => {
+    setSelectedMethod(method);
+    setViewMode('edit');
+  };
+
+  const handleBack = () => {
+    setSelectedMethod(null);
+    setViewMode('list');
+  };
+
+  if (viewMode === 'view' && selectedMethod) {
+    return (
+      <div style={styles.panel}>
+        <div style={styles.header}>
+          <button onClick={handleBack} style={styles.secondaryButton}>← Back</button>
+          <h2 style={styles.pageTitle}>{selectedMethod.title}</h2>
+        </div>
+        <div style={styles.detailCard}>
+          <p><strong>Category:</strong> {selectedMethod.category || 'N/A'}</p>
+          <p><strong>Version:</strong> v{selectedMethod.version}</p>
+          <p><strong>Last Updated:</strong> {new Date(selectedMethod.updatedAt).toLocaleString()}</p>
+          <h4>Steps:</h4>
+          <pre style={styles.codeBlock}>{typeof selectedMethod.steps === 'string' ? selectedMethod.steps : JSON.stringify(selectedMethod.steps, null, 2)}</pre>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.panel}>
@@ -242,8 +277,8 @@ function MethodsPanel({ methods, onRefresh, user }: { methods: Method[]; onRefre
                 <td style={styles.td}>v{m.version}</td>
                 <td style={styles.td}>{new Date(m.updatedAt).toLocaleDateString()}</td>
                 <td style={styles.td}>
-                  <button style={styles.iconButton}>👁️</button>
-                  <button style={styles.iconButton}>✏️</button>
+                  <button style={styles.iconButton} onClick={() => handleView(m)} title="View">👁️</button>
+                  <button style={styles.iconButton} onClick={() => handleEdit(m)} title="Edit">✏️</button>
                 </td>
               </tr>
             ))}
@@ -351,7 +386,51 @@ function ExperimentsPanel({ experiments, methods, onRefresh, user }: {
   user: AuthUser;
 }) {
   const [showForm, setShowForm] = useState(false);
+  const [selectedExperiment, setSelectedExperiment] = useState<Experiment | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'view' | 'edit'>('list');
   const methodsMap = useMemo(() => new Map(methods.map(m => [m.id, m])), [methods]);
+
+  const handleView = (experiment: Experiment) => {
+    setSelectedExperiment(experiment);
+    setViewMode('view');
+  };
+
+  const handleEdit = (experiment: Experiment) => {
+    setSelectedExperiment(experiment);
+    setViewMode('edit');
+  };
+
+  const handleBack = () => {
+    setSelectedExperiment(null);
+    setViewMode('list');
+  };
+
+  if (viewMode === 'view' && selectedExperiment) {
+    return (
+      <div style={styles.panel}>
+        <div style={styles.header}>
+          <button onClick={handleBack} style={styles.secondaryButton}>← Back</button>
+          <h2 style={styles.pageTitle}>{selectedExperiment.title}</h2>
+        </div>
+        <div style={styles.detailCard}>
+          <p><strong>Project:</strong> {selectedExperiment.project || 'N/A'}</p>
+          <p><strong>Modality:</strong> {formatModality(selectedExperiment.modality)}</p>
+          <p><strong>Status:</strong> {selectedExperiment.status || 'draft'}</p>
+          <p><strong>Protocol:</strong> {methodsMap.get(selectedExperiment.protocolRef || '')?.title || 'None'}</p>
+          <p><strong>Created:</strong> {new Date(selectedExperiment.createdAt).toLocaleString()}</p>
+          <p><strong>Last Updated:</strong> {new Date(selectedExperiment.updatedAt).toLocaleString()}</p>
+          <h4>Observations:</h4>
+          <pre style={styles.codeBlock}>{typeof selectedExperiment.observations === 'string' ? selectedExperiment.observations : JSON.stringify(selectedExperiment.observations, null, 2)}</pre>
+          {selectedExperiment.resultsSummary && (
+            <>
+              <h4>Results Summary:</h4>
+              <p>{selectedExperiment.resultsSummary}</p>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.panel}>
@@ -397,9 +476,9 @@ function ExperimentsPanel({ experiments, methods, onRefresh, user }: {
                 <td style={styles.td}>{methodsMap.get(e.protocolRef || '')?.title ?? '—'}</td>
                 <td style={styles.td}>{new Date(e.updatedAt).toLocaleDateString()}</td>
                 <td style={styles.td}>
-                  <button style={styles.iconButton}>👁️</button>
-                  <button style={styles.iconButton}>✏️</button>
-                  <button style={styles.iconButton}>✍️</button>
+                  <button style={styles.iconButton} onClick={() => handleView(e)} title="View">👁️</button>
+                  <button style={styles.iconButton} onClick={() => handleEdit(e)} title="Edit">✏️</button>
+                  <button style={styles.iconButton} onClick={() => alert('Sign feature coming soon!')} title="Sign">✍️</button>
                 </td>
               </tr>
             ))}
@@ -684,9 +763,9 @@ function StatCard({ title, value, icon, color }: { title: string; value: number;
   );
 }
 
-function QuickActionButton({ icon, label }: { icon: string; label: string }) {
+function QuickActionButton({ icon, label, onClick }: { icon: string; label: string; onClick?: () => void }) {
   return (
-    <button style={styles.quickActionButton}>
+    <button style={styles.quickActionButton} onClick={onClick}>
       <span>{icon}</span>
       <span>{label}</span>
     </button>
@@ -1157,6 +1236,22 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'space-between',
     padding: '12px 0',
     borderBottom: '1px solid #e2e8f0',
+  },
+  detailCard: {
+    background: '#fff',
+    padding: 24,
+    borderRadius: 12,
+    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+  },
+  codeBlock: {
+    background: '#f8fafc',
+    padding: 16,
+    borderRadius: 8,
+    overflow: 'auto',
+    fontSize: 13,
+    fontFamily: 'monospace',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
   },
 };
 
