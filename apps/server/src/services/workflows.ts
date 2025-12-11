@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { EventEmitter } from 'events';
 import { v4 as uuid } from 'uuid';
 import vm from 'vm';
+import nodemailer from 'nodemailer';
 
 // ==================== TYPES ====================
 
@@ -358,17 +359,112 @@ class NotificationAction implements ActionHandler {
 }
 
 class EmailAction implements ActionHandler {
-  constructor(private prisma: PrismaClient) {}
+  private transporter: nodemailer.Transporter | null = null;
+
+  constructor(private prisma: PrismaClient) {
+    // Initialize email transporter if SMTP settings are configured
+    if (process.env.SMTP_HOST) {
+      this.transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST,
+        port: Number(process.env.SMTP_PORT) || 587,
+        secure: process.env.SMTP_SECURE === 'true',
+        auth: process.env.SMTP_USER ? {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS,
+        } : undefined,
+      });
+    }
+  }
 
   async execute(config: Record<string, unknown>, context: ExecutionContext): Promise<unknown> {
-    // In a real implementation, this would send an actual email
-    // For now, we log and create a notification
     const { to, subject, body } = config as { to: string; subject: string; body: string };
     
-    console.log(`[Workflow] Sending email to ${to}: ${subject}`);
-    
-    // Create audit record
-    return { sent: true, to, subject, timestamp: new Date().toISOString() };
+    // Validate email address format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!to || !emailRegex.test(to)) {
+      throw new Error(`Invalid email address: ${to}`);
+    }
+
+    // Interpolate variables in message content
+    const interpolatedBody = this.interpolate(body, context.variables);
+    const interpolatedSubject = this.interpolate(subject, context.variables);
+
+    if (!this.transporter) {
+      // Fallback: Log email and create notification when SMTP is not configured
+      console.log(`[Workflow Email] To: ${to}, Subject: ${interpolatedSubject}`);
+      console.log(`[Workflow Email] Body: ${interpolatedBody}`);
+      
+      return { 
+        sent: false, 
+        to, 
+        subject: interpolatedSubject, 
+        timestamp: new Date().toISOString(),
+        warning: 'SMTP not configured - email logged but not sent'
+      };
+    }
+
+    try {
+      const info = await this.transporter.sendMail({
+        from: process.env.SMTP_FROM || '"ENotebook System" <no-reply@enotebook.lab>',
+        to,
+        subject: interpolatedSubject,
+        text: interpolatedBody,
+        html: this.formatHtmlEmail(interpolatedSubject, interpolatedBody),
+      });
+
+      return { 
+        sent: true, 
+        messageId: info.messageId, 
+        to, 
+        subject: interpolatedSubject,
+        timestamp: new Date().toISOString() 
+      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Email delivery failed: ${errorMessage}`);
+    }
+  }
+
+  private interpolate(template: string, variables: Record<string, unknown>): string {
+    return template.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (_, path) => {
+      const value = path.split('.').reduce((obj: unknown, key: string) => {
+        return obj && typeof obj === 'object' ? (obj as Record<string, unknown>)[key] : undefined;
+      }, variables);
+      return value !== undefined ? String(value) : '';
+    });
+  }
+
+  private formatHtmlEmail(subject: string, body: string): string {
+    // Escape HTML in user content to prevent injection
+    const escapeHtml = (str: string) => str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>${escapeHtml(subject)}</title>
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+    .header { border-bottom: 2px solid #007bff; padding-bottom: 10px; margin-bottom: 20px; }
+    .content { white-space: pre-wrap; }
+    .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 12px; color: #666; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h2 style="margin: 0; color: #007bff;">ENotebook Notification</h2>
+  </div>
+  <div class="content">${escapeHtml(body).replace(/\n/g, '<br>')}</div>
+  <div class="footer">
+    <p>This is an automated message from ENotebook.</p>
+    <p>Generated at ${new Date().toISOString()}</p>
+  </div>
+</body>
+</html>`;
   }
 }
 

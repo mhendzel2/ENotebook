@@ -15,6 +15,16 @@ import type {
   CellCount 
 } from '@eln/shared';
 import { v4 as uuid } from 'uuid';
+import { 
+  LineChart, 
+  Line, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  Legend, 
+  ResponsiveContainer 
+} from 'recharts';
 
 // ==================== TYPES ====================
 
@@ -598,13 +608,64 @@ function KineticsEditor({
         </table>
       )}
 
-      {/* Simple ASCII chart visualization */}
+      {/* Interactive Line Chart Visualization */}
       {kineticData.timePoints.length > 0 && kineticData.datasets.length > 0 && (
-        <div style={styles.chartPlaceholder}>
-          <p>📈 Chart visualization would render here</p>
-          <p style={{ fontSize: 12, color: '#64748b' }}>
-            ({kineticData.datasets.length} dataset(s), {kineticData.timePoints.length} time points)
-          </p>
+        <div style={{ width: '100%', height: 300, marginTop: 20 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={kineticData.timePoints.map((time, index) => {
+                const point: Record<string, number> = { time };
+                kineticData.datasets.forEach(ds => {
+                  point[ds.label] = ds.values[index] ?? 0;
+                });
+                return point;
+              })}
+              margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <XAxis 
+                dataKey="time" 
+                label={{ 
+                  value: kineticData.xLabel, 
+                  position: 'insideBottomRight', 
+                  offset: -10,
+                  style: { fontSize: 12, fill: '#64748b' }
+                }}
+                tick={{ fontSize: 11, fill: '#64748b' }}
+              />
+              <YAxis 
+                label={{ 
+                  value: kineticData.yLabel, 
+                  angle: -90, 
+                  position: 'insideLeft',
+                  style: { fontSize: 12, fill: '#64748b' }
+                }}
+                tick={{ fontSize: 11, fill: '#64748b' }}
+              />
+              <Tooltip 
+                contentStyle={{ 
+                  backgroundColor: '#fff', 
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 6,
+                  fontSize: 12
+                }}
+              />
+              <Legend 
+                wrapperStyle={{ fontSize: 12 }}
+              />
+              {kineticData.datasets.map((ds, i) => (
+                <Line 
+                  key={i} 
+                  type="monotone" 
+                  dataKey={ds.label} 
+                  stroke={ds.color || generateColor(i)} 
+                  strokeWidth={2}
+                  dot={{ r: 4, fill: ds.color || generateColor(i) }}
+                  activeDot={{ r: 6, strokeWidth: 2 }} 
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       )}
     </div>

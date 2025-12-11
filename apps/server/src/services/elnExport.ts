@@ -12,6 +12,8 @@ import { Request, Response, Router } from 'express';
 import crypto from 'crypto';
 import archiver from 'archiver';
 import { Writable } from 'stream';
+import puppeteer from 'puppeteer';
+import AdmZip from 'adm-zip';
 
 // ==================== TYPES ====================
 
@@ -410,12 +412,12 @@ Generated: ${new Date().toISOString()}
     const experiment = await this.prisma.experiment.findUnique({
       where: { id: experimentId },
       include: {
-        user: { select: { name: true, email: true } },
+        user: { select: { id: true, name: true, email: true } },
         signatures: {
-          include: { user: { select: { name: true } } }
+          include: { user: { select: { id: true, name: true } } }
         },
         comments: {
-          include: { author: { select: { name: true } } }
+          include: { author: { select: { id: true, name: true } } }
         },
       }
     });
@@ -424,12 +426,37 @@ Generated: ${new Date().toISOString()}
       throw new Error('Experiment not found');
     }
 
-    // Generate HTML report (in production, use puppeteer or pdfkit)
-    const html = this.generateHtmlReport(experiment);
+    const htmlContent = this.generateHtmlReport(experiment);
+
+    // Launch headless browser for PDF generation
+    const browser = await puppeteer.launch({ 
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'] // Security: Required for containerized environments
+    });
     
-    // For now, return HTML as buffer
-    // In production, convert to PDF using puppeteer or similar
-    return Buffer.from(html, 'utf-8');
+    try {
+      const page = await browser.newPage();
+      
+      // Set content and wait for network idle to ensure assets load
+      await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+      
+      // Generate PDF buffer with compliance-friendly formatting
+      const pdfBuffer = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '20mm', right: '15mm', bottom: '20mm', left: '15mm' },
+        displayHeaderFooter: true,
+        headerTemplate: `<div style="font-size:9px; margin-left:20mm; color:#666;">ENotebook - ${experiment.title}</div>`,
+        footerTemplate: `<div style="font-size:9px; margin-left:20mm; width:100%; display:flex; justify-content:space-between; padding-right:20mm;">
+          <span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
+          <span>Document ID: ${experiment.id}</span>
+        </div>`
+      });
+
+      return Buffer.from(pdfBuffer);
+    } finally {
+      await browser.close();
+    }
   }
 
   /**
@@ -549,23 +576,98 @@ Generated: ${new Date().toISOString()}
     userId: string,
     archiveBuffer: Buffer
   ): Promise<{ imported: number; errors: string[] }> {
-    // In production, use a ZIP library to extract and parse
-    // This is a placeholder implementation
-    const imported = 0;
     const errors: string[] = [];
+    let importedCount = 0;
 
     try {
-      // Parse archive
-      // Extract ro-crate-metadata.json
-      // Import experiments
-      // Handle attachments
-      
-      errors.push('Import functionality not yet implemented');
-    } catch (error: any) {
-      errors.push(error.message);
+      // Parse ZIP archive
+      const zip = new AdmZip(archiveBuffer);
+      const zipEntries = zip.getEntries();
+
+      // Validate RO-Crate Metadata exists
+      const metadataEntry = zipEntries.find(entry => entry.entryName === 'ro-crate-metadata.json');
+      if (!metadataEntry) {
+        throw new Error('Invalid .eln archive: Missing ro-crate-metadata.json');
+      }
+
+      // Parse and validate metadata
+      let roCrateMetadata: ROCrateMetadata;
+      try {
+        const metadataContent = metadataEntry.getData().toString('utf8');
+        roCrateMetadata = JSON.parse(metadataContent);
+      } catch {
+        throw new Error('Invalid .eln archive: Malformed ro-crate-metadata.json');
+      }
+
+      // Process experiment JSON files
+      const experimentEntries = zipEntries.filter(
+        entry => entry.entryName.startsWith('experiments/') && entry.entryName.endsWith('.json')
+      );
+
+      if (experimentEntries.length === 0) {
+        errors.push('No experiments found in archive');
+        return { imported: 0, errors };
+      }
+
+      for (const entry of experimentEntries) {
+        try {
+          const content = entry.getData().toString('utf8');
+          const expData = JSON.parse(content);
+
+          // Validate required fields
+          if (!expData.title) {
+            errors.push(`Skipping ${entry.entryName}: Missing required 'title' field`);
+            continue;
+          }
+
+          // Create experiment with a new ID to avoid conflicts
+          // Store original ID in tags for traceability
+          const originalTags = expData.tags && Array.isArray(expData.tags) ? expData.tags : [];
+          const importTags = [...originalTags, `import_source:${expData.id || 'unknown'}`];
+
+          await this.prisma.experiment.create({
+            data: {
+              userId: userId,
+              title: `${expData.title} (Imported)`,
+              project: expData.project || null,
+              modality: expData.modality || 'molecular_biology',
+              status: 'draft', // Reset status for imported experiments
+              version: 1,
+              params: expData.params ? JSON.stringify(expData.params) : null,
+              observations: expData.observations ? JSON.stringify(expData.observations) : null,
+              resultsSummary: expData.resultsSummary || null,
+              tags: JSON.stringify(importTags)
+            }
+          });
+
+          // Handle attachments if present
+          if (expData.attachments && Array.isArray(expData.attachments)) {
+            for (const attachment of expData.attachments) {
+              const attachmentPath = attachment.path || `attachments/${expData.id}/${attachment.filename}`;
+              const attachmentEntry = zipEntries.find(e => e.entryName === attachmentPath);
+              
+              if (attachmentEntry) {
+                // In production: Save attachment to blob storage and create DB record
+                // For now, we log the attachment for manual processing
+                console.log(`[Import] Found attachment: ${attachment.filename} for experiment ${expData.title}`);
+              } else {
+                errors.push(`Attachment not found in archive: ${attachmentPath}`);
+              }
+            }
+          }
+
+          importedCount++;
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          errors.push(`Failed to import ${entry.entryName}: ${errorMessage}`);
+        }
+      }
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      return { imported: 0, errors: [errorMessage] };
     }
 
-    return { imported, errors };
+    return { imported: importedCount, errors };
   }
 }
 
