@@ -260,10 +260,10 @@ export function FileImporter({
           <p className="drop-zone-text">
             {isDragging 
               ? 'Drop files here...' 
-              : 'Drag & drop images or spreadsheets here, or click to browse'}
+              : 'Drag & drop images, spreadsheets or reports here, or click to browse'}
           </p>
           <p className="drop-zone-hint">
-            Supported: JPG, PNG, GIF, SVG, XLSX, CSV, PDF (max 50MB)
+            Supported: JPG, PNG, GIF, SVG, XLSX, CSV, PDF, HTML, MD, DOCX (max 50MB)
           </p>
         </div>
       </div>

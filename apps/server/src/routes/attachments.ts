@@ -87,7 +87,12 @@ const ALLOWED_SPREADSHEET_TYPES = [
 const ALLOWED_DOCUMENT_TYPES = [
   'application/pdf',
   'text/plain',
-  'application/json'
+  'application/json',
+  // Report document formats (FRAP HTML reports, SPT Markdown reports, etc.)
+  'text/html',
+  'text/markdown',
+  'text/x-markdown',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 ];
 
 const ALL_ALLOWED_TYPES = [
@@ -577,7 +582,15 @@ function guessMimeType(filename: string): string {
     '.ods': 'application/vnd.oasis.opendocument.spreadsheet',
     '.pdf': 'application/pdf',
     '.txt': 'text/plain',
-    '.json': 'application/json'
+    '.json': 'application/json',
+    // HTML and Markdown documents
+    '.html': 'text/html',
+    '.htm': 'text/html',
+    '.md': 'text/markdown',
+    '.markdown': 'text/markdown',
+    // Word documents
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
   };
   return mimeMap[ext] || 'application/octet-stream';
 }
@@ -599,7 +612,13 @@ function getExtensionFromMime(mime: string): string {
     'application/vnd.oasis.opendocument.spreadsheet': '.ods',
     'application/pdf': '.pdf',
     'text/plain': '.txt',
-    'application/json': '.json'
+    'application/json': '.json',
+    // HTML and Markdown documents
+    'text/html': '.html',
+    'text/markdown': '.md',
+    // Word documents
+    'application/msword': '.doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx'
   };
   return extMap[mime] || '';
 }
