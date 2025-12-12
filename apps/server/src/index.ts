@@ -180,14 +180,8 @@ const methodUpdateSchema = methodSchema.partial().refine(
 app.get('/methods', async (_req, res) => {
   try {
     const methods = await prisma.method.findMany();
-    // Parse JSON fields
-    const parsedMethods = methods.map(m => ({
-      ...m,
-      steps: JSON.parse(m.steps),
-      reagents: m.reagents ? JSON.parse(m.reagents) : undefined,
-      attachments: m.attachments ? JSON.parse(m.attachments) : undefined
-    }));
-    res.json(parsedMethods);
+    // Prisma's Json type already returns parsed objects
+    res.json(methods);
   } catch (error) {
     res.status(500).json({ error: 'Database error' });
   }
@@ -207,18 +201,14 @@ app.post('/methods', async (req, res) => {
         createdBy: user.id,
         version: 1,
         ...rest,
-        steps: JSON.stringify(steps),
-        reagents: reagents ? JSON.stringify(reagents) : undefined,
-        attachments: attachments ? JSON.stringify(attachments) : undefined
+        steps: steps,
+        reagents: reagents || undefined,
+        attachments: attachments || undefined
       }
     });
-    res.status(201).json({
-      ...method,
-      steps: JSON.parse(method.steps),
-      reagents: method.reagents ? JSON.parse(method.reagents) : undefined,
-      attachments: method.attachments ? JSON.parse(method.attachments) : undefined
-    });
+    res.status(201).json(method);
   } catch (error) {
+    console.error('Failed to save method:', error);
     res.status(500).json({ error: 'Failed to save method' });
   }
 });
@@ -242,24 +232,18 @@ app.patch('/methods/:id', async (req, res) => {
 
     const { steps, reagents, attachments, ...rest } = parse.data;
     const updateData: any = { ...rest };
-    if (steps !== undefined) updateData.steps = JSON.stringify(steps);
-    if (reagents !== undefined) updateData.reagents = reagents ? JSON.stringify(reagents) : undefined;
-    if (attachments !== undefined) updateData.attachments = attachments ? JSON.stringify(attachments) : undefined;
+    if (steps !== undefined) updateData.steps = steps;
+    if (reagents !== undefined) updateData.reagents = reagents || undefined;
+    if (attachments !== undefined) updateData.attachments = attachments || undefined;
     updateData.version = (existing.version || 1) + 1;
 
     const updated = await prisma.method.update({ where: { id: methodId }, data: updateData });
 
-    const normalizeMethod = (m: any) => ({
-      ...m,
-      steps: m.steps ? JSON.parse(m.steps) : undefined,
-      reagents: m.reagents ? JSON.parse(m.reagents) : undefined,
-      attachments: m.attachments ? JSON.parse(m.attachments) : undefined
-    });
+    await logChange('methods', methodId, 'update', existing, updated);
 
-    await logChange('methods', methodId, 'update', normalizeMethod(existing), normalizeMethod(updated));
-
-    res.json(normalizeMethod(updated));
+    res.json(updated);
   } catch (error) {
+    console.error('Failed to update method:', error);
     res.status(500).json({ error: 'Failed to update method' });
   }
 });
@@ -399,16 +383,9 @@ app.patch('/experiments/:id', async (req, res) => {
 
     const updated = await prisma.experiment.update({ where: { id: experimentId }, data: updateData });
 
-    const normalizeExperiment = (exp: any) => ({
-      ...exp,
-      params: typeof exp.params === 'string' ? JSON.parse(exp.params) : exp.params,
-      observations: typeof exp.observations === 'string' ? JSON.parse(exp.observations) : exp.observations,
-      tags: Array.isArray(exp.tags) ? exp.tags : exp.tags ? JSON.parse(exp.tags) : []
-    });
+    await logChange('experiments', experimentId, 'update', existing, updated);
 
-    await logChange('experiments', experimentId, 'update', normalizeExperiment(existing), normalizeExperiment(updated));
-
-    res.json(normalizeExperiment(updated));
+    res.json(updated);
   } catch (error) {
     console.error('Failed to update experiment:', error);
     res.status(500).json({ error: 'Failed to update experiment' });
@@ -436,17 +413,14 @@ app.post('/experiments/from-method/:methodId', async (req, res) => {
         protocolRef: methodId,
         version: 1,
         status: 'draft',
-        observations: method.steps ? (typeof method.steps === 'string' ? JSON.parse(method.steps) : method.steps) : undefined,
+        observations: method.steps || undefined,
         tags: []
       }
     });
 
-    res.status(201).json({
-      ...experiment,
-      observations: experiment.observations,
-      tags: experiment.tags || []
-    });
+    res.status(201).json(experiment);
   } catch (error) {
+    console.error('Failed to create experiment from method:', error);
     res.status(500).json({ error: 'Failed to create experiment from method' });
   }
 });
@@ -486,9 +460,9 @@ app.post('/sync/push', async (req, res) => {
         const { params, observations, tags, ...rest } = incExp;
         const dataToSave = {
           ...rest,
-          params: params ? JSON.stringify(params) : undefined,
-          observations: observations ? JSON.stringify(observations) : undefined,
-          tags: tags ? JSON.stringify(tags) : JSON.stringify([])
+          params: params || undefined,
+          observations: observations || undefined,
+          tags: tags || []
         };
 
         if (!existing) {
@@ -518,9 +492,9 @@ app.post('/sync/push', async (req, res) => {
         const { steps, reagents, attachments, ...rest } = incMethod;
         const dataToSave = {
           ...rest,
-          steps: JSON.stringify(steps),
-          reagents: reagents ? JSON.stringify(reagents) : undefined,
-          attachments: attachments ? JSON.stringify(attachments) : undefined
+          steps: steps,
+          reagents: reagents || undefined,
+          attachments: attachments || undefined
         };
 
         if (!existing) {
@@ -556,21 +530,8 @@ app.get('/sync/pull', async (_req, res) => {
     const methods = await prisma.method.findMany();
     const experiments = await prisma.experiment.findMany();
     
-    const parsedMethods = methods.map(m => ({
-      ...m,
-      steps: JSON.parse(m.steps),
-      reagents: m.reagents ? JSON.parse(m.reagents) : undefined,
-      attachments: m.attachments ? JSON.parse(m.attachments) : undefined
-    }));
-
-    const parsedExperiments = experiments.map(e => ({
-      ...e,
-      params: e.params ? JSON.parse(e.params) : undefined,
-      observations: e.observations ? JSON.parse(e.observations) : undefined,
-      tags: e.tags ? JSON.parse(e.tags) : []
-    }));
-
-    res.json({ methods: parsedMethods, experiments: parsedExperiments });
+    // Prisma's Json type already returns parsed objects
+    res.json({ methods, experiments });
   } catch (error) {
     res.status(500).json({ error: 'Database error' });
   }
@@ -868,12 +829,7 @@ app.post('/methods/:id/new-version', async (req, res) => {
       }
     });
 
-    res.status(201).json({
-      ...newVersion,
-      steps: JSON.parse(newVersion.steps),
-      reagents: newVersion.reagents ? JSON.parse(newVersion.reagents) : undefined,
-      attachments: newVersion.attachments ? JSON.parse(newVersion.attachments) : undefined
-    });
+    res.status(201).json(newVersion);
   } catch (error) {
     res.status(500).json({ error: 'Failed to create new version' });
   }
@@ -891,12 +847,7 @@ app.get('/methods/:id/versions', async (req, res) => {
       orderBy: { version: 'desc' }
     });
 
-    res.json(versions.map(m => ({
-      ...m,
-      steps: JSON.parse(m.steps),
-      reagents: m.reagents ? JSON.parse(m.reagents) : undefined,
-      attachments: m.attachments ? JSON.parse(m.attachments) : undefined
-    })));
+    res.json(versions);
   } catch (error) {
     res.status(500).json({ error: 'Database error' });
   }

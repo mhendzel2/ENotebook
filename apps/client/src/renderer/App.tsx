@@ -315,7 +315,7 @@ function MethodForm({ user, onClose, onSaved }: { user: AuthUser; onClose: () =>
         body: JSON.stringify({
           title,
           category,
-          steps: JSON.stringify({ text: steps }),
+          steps: { text: steps },
         }),
       });
 
@@ -524,7 +524,7 @@ function ExperimentForm({ user, methods, onClose, onSaved }: {
           project,
           modality: modality || 'molecular_biology',
           protocolRef: protocolRef || null,
-          observations: JSON.stringify({ text: observations }),
+          observations: { text: observations },
           tags: [],
         }),
       });
