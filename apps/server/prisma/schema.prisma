@@ -82,6 +82,7 @@ model Experiment {
 
   revisions      ExperimentRevision[]
   attachments    Attachment[]
+  reports        Report[]
   signatures     Signature[]
   comments       Comment[]
   stockUsages    ExperimentStock[]
@@ -115,6 +116,27 @@ model Attachment {
 
   method       Method? @relation(fields: [methodId], references: [id])
   methodId     String?
+}
+
+// Report attachments from external analytical programs (FRAP, SPT, etc.)
+model Report {
+  id               String   @id @default(uuid())
+  reportType       String   // FRAP, SPT, flow_cytometry, image_analysis, sequencing, mass_spec, custom
+  filename         String
+  originalFilename String?
+  mime             String?
+  size             Int?
+  blobPath         String?
+  notes            String?
+  metadata         Json?    // Tool-specific metadata (e.g., analysis parameters, software version)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  experiment       Experiment @relation(fields: [experimentId], references: [id])
+  experimentId     String
+
+  @@index([experimentId])
+  @@index([reportType])
 }
 
 model SyncState {

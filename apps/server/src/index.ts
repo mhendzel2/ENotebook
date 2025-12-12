@@ -15,6 +15,7 @@ import { createApiKeyRoutes, apiKeyAuth, requirePermission as apiKeyRequirePermi
 import { createExportRoutes } from './routes/export.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createAttachmentRoutes } from './routes/attachments.js';
+import { createReportRoutes } from './routes/reports.js';
 import { requirePermission, requireAllPermissions } from './middleware/permissions.js';
 import { createSignatureRoutes, SignatureService } from './services/signatures.js';
 import { createAuditRoutes, AuditTrailService } from './services/auditTrail.js';
@@ -137,6 +138,9 @@ app.use(createElnExportRoutes(prisma));
 
 // ==================== ATTACHMENTS (IMAGES, SPREADSHEETS) ====================
 app.use(createAttachmentRoutes(prisma));
+
+// ==================== REPORTS (FRAP, SPT, etc.) ====================
+app.use(createReportRoutes(prisma));
 
 // ==================== AUTOMATION WORKFLOWS ====================
 app.use(createWorkflowRoutes(prisma, workflowEngine));
@@ -287,6 +291,58 @@ app.get('/experiments', async (req, res) => {
     res.json(data);
   } catch (error) {
     console.error('Failed to get experiments:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// GET single experiment with all related data (attachments, reports, etc.)
+app.get('/experiments/:id', async (req, res) => {
+  const user = (req as any).user as User;
+  const { id } = req.params;
+  
+  try {
+    const experiment = await prisma.experiment.findUnique({
+      where: { id },
+      include: {
+        attachments: true,
+        reports: true,
+        signatures: {
+          include: {
+            user: { select: { id: true, name: true, email: true } }
+          }
+        },
+        comments: {
+          include: {
+            author: { select: { id: true, name: true } }
+          },
+          orderBy: { createdAt: 'desc' }
+        },
+        stockUsages: {
+          include: {
+            stock: {
+              include: {
+                item: { select: { name: true, catalogNumber: true } }
+              }
+            }
+          }
+        },
+        user: { select: { id: true, name: true, email: true } }
+      }
+    });
+    
+    if (!experiment) {
+      return res.status(404).json({ error: 'Experiment not found' });
+    }
+    
+    // Check authorization
+    const canView = user.role === 'manager' || user.role === 'admin' || experiment.userId === user.id;
+    if (!canView) {
+      return res.status(403).json({ error: 'Not authorized to view this experiment' });
+    }
+    
+    res.json(experiment);
+  } catch (error) {
+    console.error('Failed to get experiment:', error);
     res.status(500).json({ error: 'Database error' });
   }
 });
