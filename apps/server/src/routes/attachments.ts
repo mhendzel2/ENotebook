@@ -449,6 +449,16 @@ export function createAttachmentRoutes(prisma: PrismaClient): Router {
     }
 
     try {
+      // Rate limiting check (stricter for bulk operations)
+      if (!checkRateLimit(user?.id || req.ip || 'anonymous')) {
+        return res.status(429).json({ error: 'Too many requests. Please try again later.' });
+      }
+
+      // Validate experimentId format to prevent path traversal
+      if (!isValidPathSegment(experimentId)) {
+        return res.status(400).json({ error: 'Invalid experiment ID format' });
+      }
+
       const experiment = await prisma.experiment.findUnique({
         where: { id: experimentId }
       });
@@ -488,10 +498,22 @@ export function createAttachmentRoutes(prisma: PrismaClient): Router {
           const attachmentId = uuid();
           const ext = path.extname(filename) || getExtensionFromMime(mimeType);
           const safeFilename = sanitizeFilename(filename);
-          const storagePath = path.join(experimentId, `${attachmentId}${ext}`);
-          const fullPath = path.join(DATA_DIR, storagePath);
+          // Use UUID for storage path (no user-controlled content in path)
+          const storagePath = `${experimentId}/${attachmentId}${ext}`;
+          
+          // Safely construct full path with validation
+          const fullPath = safeJoinPath(DATA_DIR, experimentId, `${attachmentId}${ext}`);
+          if (!fullPath) {
+            results.errors.push({ filename, error: 'Invalid path construction' });
+            continue;
+          }
 
-          const expDir = path.join(DATA_DIR, experimentId);
+          // Ensure experiment directory exists (using safe path)
+          const expDir = safeJoinPath(DATA_DIR, experimentId);
+          if (!expDir) {
+            results.errors.push({ filename, error: 'Invalid directory path' });
+            continue;
+          }
           if (!fs.existsSync(expDir)) {
             fs.mkdirSync(expDir, { recursive: true });
           }
