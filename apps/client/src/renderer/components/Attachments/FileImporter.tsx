@@ -16,7 +16,7 @@ interface UploadProgress {
   error?: string;
 }
 
-// Allowed MIME types for images and spreadsheets
+// Allowed MIME types for images, spreadsheets and report documents
 const ALLOWED_MIME_TYPES = [
   // Images
   'image/jpeg',
@@ -31,16 +31,22 @@ const ALLOWED_MIME_TYPES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'text/csv',
   'application/vnd.oasis.opendocument.spreadsheet',
-  // Documents (optional)
+  // Documents (original)
   'application/pdf',
   'text/plain',
   'application/json',
+  // Added document formats for reports (FRAP, SPT, etc.)
+  'text/html',
+  'text/markdown',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ];
 
 const ALLOWED_EXTENSIONS = [
   '.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.tiff', '.tif',
   '.xls', '.xlsx', '.csv', '.ods',
-  '.pdf', '.txt', '.json'
+  '.pdf', '.txt', '.json',
+  // Extensions for HTML, Markdown and Word documents
+  '.html', '.htm', '.md', '.markdown', '.docx'
 ];
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB

@@ -277,12 +277,19 @@ export function ReportList({
             </div>
             <div className="viewer-body">
               {viewingReport.mime === 'text/html' && htmlContent ? (
-                <iframe
-                  srcDoc={htmlContent}
-                  title={viewingReport.filename}
-                  className="html-viewer"
-                  sandbox="allow-scripts allow-same-origin"
-                />
+                <>
+                  <div className="html-warning">
+                    ⚠️ This HTML report is rendered in a sandboxed iframe for security.
+                    Some interactive features may be limited.
+                  </div>
+                  <iframe
+                    srcDoc={htmlContent}
+                    title={viewingReport.filename}
+                    className="html-viewer"
+                    sandbox="allow-same-origin"
+                    referrerPolicy="no-referrer"
+                  />
+                </>
               ) : (
                 <div className="no-preview">
                   <span className="file-icon-large">{getFileIcon(viewingReport)}</span>
@@ -459,11 +466,21 @@ export function ReportList({
         .viewer-body {
           flex: 1;
           overflow: hidden;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .html-warning {
+          padding: 8px 16px;
+          background: #fff3cd;
+          color: #856404;
+          font-size: 12px;
+          border-bottom: 1px solid #ffc107;
         }
 
         .html-viewer {
+          flex: 1;
           width: 100%;
-          height: 100%;
           border: none;
         }
 
