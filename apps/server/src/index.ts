@@ -392,6 +392,233 @@ app.patch('/experiments/:id', async (req, res) => {
   }
 });
 
+// ==================== ADMIN ENDPOINTS ====================
+
+// Admin: Get all experiments with user information (for lab managers/admins)
+app.get('/admin/experiments', async (req, res) => {
+  const user = (req as any).user as User;
+  
+  if (user.role !== 'admin' && user.role !== 'manager') {
+    return res.status(403).json({ error: 'Admin or manager access required' });
+  }
+  
+  try {
+    const experiments = await prisma.experiment.findMany({
+      include: {
+        user: { select: { id: true, name: true, email: true, role: true } },
+        signatures: { select: { id: true, signatureType: true, createdAt: true } }
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+    
+    res.json(experiments);
+  } catch (error) {
+    console.error('Failed to get all experiments:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Admin: Get all methods with creator information
+app.get('/admin/methods', async (req, res) => {
+  const user = (req as any).user as User;
+  
+  if (user.role !== 'admin' && user.role !== 'manager') {
+    return res.status(403).json({ error: 'Admin or manager access required' });
+  }
+  
+  try {
+    const methods = await prisma.method.findMany({
+      include: {
+        creator: { select: { id: true, name: true, email: true, role: true } }
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+    
+    res.json(methods);
+  } catch (error) {
+    console.error('Failed to get all methods:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Admin: Get all users and their activity summary
+app.get('/admin/users', async (req, res) => {
+  const user = (req as any).user as User;
+  
+  if (user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  
+  try {
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        active: true,
+        createdAt: true,
+        _count: {
+          select: {
+            experiments: true,
+            methods: true,
+            signatures: true
+          }
+        }
+      },
+      orderBy: { name: 'asc' }
+    });
+    
+    res.json(users);
+  } catch (error) {
+    console.error('Failed to get users:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Admin: Get experiments by specific user
+app.get('/admin/users/:userId/experiments', async (req, res) => {
+  const user = (req as any).user as User;
+  const { userId } = req.params;
+  
+  if (user.role !== 'admin' && user.role !== 'manager') {
+    return res.status(403).json({ error: 'Admin or manager access required' });
+  }
+  
+  try {
+    const experiments = await prisma.experiment.findMany({
+      where: { userId },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        signatures: true
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+    
+    res.json(experiments);
+  } catch (error) {
+    console.error('Failed to get user experiments:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ==================== PROJECT ORGANIZATION ====================
+
+// Get experiments organized by project
+app.get('/experiments/by-project', async (req, res) => {
+  const user = (req as any).user as User;
+  
+  try {
+    const where = user.role === 'manager' || user.role === 'admin' ? {} : { userId: user.id };
+    
+    const experiments = await prisma.experiment.findMany({
+      where,
+      include: {
+        user: { select: { id: true, name: true } }
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+    
+    // Group experiments by project
+    const byProject: Record<string, typeof experiments> = {};
+    const unassigned: typeof experiments = [];
+    
+    for (const exp of experiments) {
+      if (exp.project && exp.project.trim()) {
+        if (!byProject[exp.project]) {
+          byProject[exp.project] = [];
+        }
+        byProject[exp.project].push(exp);
+      } else {
+        unassigned.push(exp);
+      }
+    }
+    
+    res.json({
+      projects: byProject,
+      unassigned,
+      projectList: Object.keys(byProject).sort(),
+      summary: {
+        totalProjects: Object.keys(byProject).length,
+        totalExperiments: experiments.length,
+        unassignedCount: unassigned.length
+      }
+    });
+  } catch (error) {
+    console.error('Failed to get experiments by project:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Get list of all projects
+app.get('/projects', async (req, res) => {
+  const user = (req as any).user as User;
+  
+  try {
+    const where = user.role === 'manager' || user.role === 'admin' ? {} : { userId: user.id };
+    
+    const experiments = await prisma.experiment.findMany({
+      where,
+      select: { project: true, id: true, status: true, updatedAt: true }
+    });
+    
+    // Aggregate project statistics
+    const projectStats: Record<string, { count: number; statuses: Record<string, number>; lastUpdated: Date }> = {};
+    
+    for (const exp of experiments) {
+      const projectName = exp.project || 'Unassigned';
+      if (!projectStats[projectName]) {
+        projectStats[projectName] = { count: 0, statuses: {}, lastUpdated: exp.updatedAt };
+      }
+      projectStats[projectName].count++;
+      const status = exp.status || 'draft';
+      projectStats[projectName].statuses[status] = (projectStats[projectName].statuses[status] || 0) + 1;
+      if (exp.updatedAt > projectStats[projectName].lastUpdated) {
+        projectStats[projectName].lastUpdated = exp.updatedAt;
+      }
+    }
+    
+    const projects = Object.entries(projectStats).map(([name, stats]) => ({
+      name,
+      experimentCount: stats.count,
+      statuses: stats.statuses,
+      lastUpdated: stats.lastUpdated
+    })).sort((a, b) => b.lastUpdated.getTime() - a.lastUpdated.getTime());
+    
+    res.json(projects);
+  } catch (error) {
+    console.error('Failed to get projects:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Get experiments for a specific project
+app.get('/projects/:projectName/experiments', async (req, res) => {
+  const user = (req as any).user as User;
+  const { projectName } = req.params;
+  
+  try {
+    const baseWhere = user.role === 'manager' || user.role === 'admin' ? {} : { userId: user.id };
+    const where = projectName === 'Unassigned' 
+      ? { ...baseWhere, OR: [{ project: null }, { project: '' }] }
+      : { ...baseWhere, project: decodeURIComponent(projectName) };
+    
+    const experiments = await prisma.experiment.findMany({
+      where,
+      include: {
+        user: { select: { id: true, name: true } },
+        signatures: { select: { id: true, signatureType: true } }
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+    
+    res.json(experiments);
+  } catch (error) {
+    console.error('Failed to get project experiments:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // Create experiment from method template
 app.post('/experiments/from-method/:methodId', async (req, res) => {
   const user = (req as any).user as User;

@@ -3,7 +3,7 @@ import { MODALITIES, Modality, Method, Experiment } from '@eln/shared';
 import { v4 as uuid } from 'uuid';
 import { LoginPage, CreateAccountPage, AuthUser } from './components/Auth';
 
-type NavTab = 'dashboard' | 'methods' | 'experiments' | 'inventory' | 'workflows' | 'labels' | 'analytics' | 'sync' | 'settings';
+type NavTab = 'dashboard' | 'methods' | 'experiments' | 'projects' | 'inventory' | 'workflows' | 'labels' | 'analytics' | 'sync' | 'settings' | 'admin';
 type AuthState = 'login' | 'register' | 'authenticated';
 
 const API_BASE = 'http://localhost:4000';
@@ -115,12 +115,16 @@ function App() {
           <NavButton icon="📊" label="Dashboard" active={tab === 'dashboard'} onClick={() => setTab('dashboard')} />
           <NavButton icon="📋" label="Methods" active={tab === 'methods'} onClick={() => setTab('methods')} />
           <NavButton icon="🧪" label="Experiments" active={tab === 'experiments'} onClick={() => setTab('experiments')} />
+          <NavButton icon="📁" label="Projects" active={tab === 'projects'} onClick={() => setTab('projects')} />
           <NavButton icon="📦" label="Inventory" active={tab === 'inventory'} onClick={() => setTab('inventory')} />
           <NavButton icon="⚡" label="Workflows" active={tab === 'workflows'} onClick={() => setTab('workflows')} />
           <NavButton icon="🏷️" label="Labels" active={tab === 'labels'} onClick={() => setTab('labels')} />
           <NavButton icon="📈" label="Analytics" active={tab === 'analytics'} onClick={() => setTab('analytics')} />
           <NavButton icon="🔄" label="Sync" active={tab === 'sync'} onClick={() => setTab('sync')} />
           <div style={styles.navDivider} />
+          {(user?.role === 'admin' || user?.role === 'manager') && (
+            <NavButton icon="👥" label="Admin" active={tab === 'admin'} onClick={() => setTab('admin')} />
+          )}
           <NavButton icon="⚙️" label="Settings" active={tab === 'settings'} onClick={() => setTab('settings')} />
         </nav>
         <div style={styles.userSection}>
@@ -137,12 +141,14 @@ function App() {
         {tab === 'dashboard' && <DashboardPanel methods={methods} experiments={experiments} user={user!} onNavigate={setTab} />}
         {tab === 'methods' && <MethodsPanel methods={methods} onRefresh={fetchData} user={user!} />}
         {tab === 'experiments' && <ExperimentsPanel experiments={experiments} methods={methods} onRefresh={fetchData} user={user!} />}
+        {tab === 'projects' && <ProjectsPanel user={user!} methods={methods} />}
         {tab === 'inventory' && <InventoryPanel user={user!} />}
         {tab === 'workflows' && <WorkflowsPanel user={user!} />}
         {tab === 'labels' && <LabelsPanel user={user!} />}
         {tab === 'analytics' && <AnalyticsPanel user={user!} />}
         {tab === 'sync' && <SyncPanel />}
         {tab === 'settings' && <SettingsPanel user={user!} />}
+        {tab === 'admin' && <AdminPanel user={user!} />}
       </main>
     </div>
   );
@@ -788,6 +794,384 @@ function StatusBadge({ status }: { status: string }) {
 
 function formatModality(modality: Modality | string) {
   return modality.replace(/_/g, ' ');
+}
+
+// Admin Panel - For viewing all lab members' notebooks
+function AdminPanel({ user }: { user: AuthUser }) {
+  const [activeTab, setActiveTab] = useState<'users' | 'experiments' | 'methods'>('users');
+  const [users, setUsers] = useState<any[]>([]);
+  const [allExperiments, setAllExperiments] = useState<any[]>([]);
+  const [allMethods, setAllMethods] = useState<any[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    loadAdminData();
+  }, [activeTab]);
+
+  const loadAdminData = async () => {
+    setLoading(true);
+    try {
+      const headers = { 'x-user-id': user.id };
+      
+      if (activeTab === 'users') {
+        const res = await fetch(`${API_BASE}/admin/users`, { headers });
+        if (res.ok) setUsers(await res.json());
+      } else if (activeTab === 'experiments') {
+        const res = await fetch(`${API_BASE}/admin/experiments`, { headers });
+        if (res.ok) setAllExperiments(await res.json());
+      } else if (activeTab === 'methods') {
+        const res = await fetch(`${API_BASE}/admin/methods`, { headers });
+        if (res.ok) setAllMethods(await res.json());
+      }
+    } catch (error) {
+      console.error('Failed to load admin data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadUserExperiments = async (userId: string) => {
+    setSelectedUserId(userId);
+    try {
+      const res = await fetch(`${API_BASE}/admin/users/${userId}/experiments`, {
+        headers: { 'x-user-id': user.id }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAllExperiments(data);
+        setActiveTab('experiments');
+      }
+    } catch (error) {
+      console.error('Failed to load user experiments:', error);
+    }
+  };
+
+  return (
+    <div style={styles.panel}>
+      <div style={styles.header}>
+        <div>
+          <h2 style={styles.pageTitle}>Lab Administration</h2>
+          <p style={styles.pageSubtitle}>View and manage all lab members' notebooks</p>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
+        <button
+          onClick={() => { setActiveTab('users'); setSelectedUserId(null); }}
+          style={activeTab === 'users' ? styles.primaryButton : styles.secondaryButton}
+        >
+          👥 Lab Members
+        </button>
+        <button
+          onClick={() => { setActiveTab('experiments'); setSelectedUserId(null); }}
+          style={activeTab === 'experiments' ? styles.primaryButton : styles.secondaryButton}
+        >
+          🧪 All Experiments
+        </button>
+        <button
+          onClick={() => { setActiveTab('methods'); setSelectedUserId(null); }}
+          style={activeTab === 'methods' ? styles.primaryButton : styles.secondaryButton}
+        >
+          📋 All Methods
+        </button>
+      </div>
+
+      {loading ? (
+        <div style={styles.emptyState}><p>Loading...</p></div>
+      ) : activeTab === 'users' ? (
+        <div style={styles.tableContainer}>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Name</th>
+                <th style={styles.th}>Email</th>
+                <th style={styles.th}>Role</th>
+                <th style={styles.th}>Experiments</th>
+                <th style={styles.th}>Methods</th>
+                <th style={styles.th}>Status</th>
+                <th style={styles.th}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u: any) => (
+                <tr key={u.id} style={styles.tr}>
+                  <td style={styles.td}>{u.name}</td>
+                  <td style={styles.td}>{u.email || '—'}</td>
+                  <td style={styles.td}>
+                    <span style={{
+                      ...styles.badge,
+                      background: u.role === 'admin' ? '#ef444420' : u.role === 'manager' ? '#f59e0b20' : '#3b82f620',
+                      color: u.role === 'admin' ? '#ef4444' : u.role === 'manager' ? '#f59e0b' : '#3b82f6'
+                    }}>
+                      {u.role}
+                    </span>
+                  </td>
+                  <td style={styles.td}>{u._count?.experiments || 0}</td>
+                  <td style={styles.td}>{u._count?.methods || 0}</td>
+                  <td style={styles.td}>
+                    <span style={{ color: u.active ? '#10b981' : '#ef4444' }}>
+                      {u.active ? '● Active' : '○ Inactive'}
+                    </span>
+                  </td>
+                  <td style={styles.td}>
+                    <button 
+                      style={styles.iconButton} 
+                      onClick={() => loadUserExperiments(u.id)}
+                      title="View Experiments"
+                    >
+                      📂
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {users.length === 0 && (
+            <div style={styles.emptyState}><p>No lab members found.</p></div>
+          )}
+        </div>
+      ) : activeTab === 'experiments' ? (
+        <div>
+          {selectedUserId && (
+            <div style={{ marginBottom: '16px', padding: '12px', background: '#1e293b', borderRadius: '8px' }}>
+              <span>Showing experiments for: </span>
+              <strong>{users.find(u => u.id === selectedUserId)?.name || selectedUserId}</strong>
+              <button 
+                onClick={() => { setSelectedUserId(null); loadAdminData(); }} 
+                style={{ ...styles.secondaryButton, marginLeft: '16px', padding: '4px 12px' }}
+              >
+                Show All
+              </button>
+            </div>
+          )}
+          <div style={styles.tableContainer}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Title</th>
+                  <th style={styles.th}>Owner</th>
+                  <th style={styles.th}>Project</th>
+                  <th style={styles.th}>Modality</th>
+                  <th style={styles.th}>Status</th>
+                  <th style={styles.th}>Signatures</th>
+                  <th style={styles.th}>Updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allExperiments.map((e: any) => (
+                  <tr key={e.id} style={styles.tr}>
+                    <td style={styles.td}>{e.title}</td>
+                    <td style={styles.td}>{e.user?.name || '—'}</td>
+                    <td style={styles.td}>{e.project || '—'}</td>
+                    <td style={styles.td}><span style={styles.badge}>{formatModality(e.modality)}</span></td>
+                    <td style={styles.td}><StatusBadge status={e.status || 'draft'} /></td>
+                    <td style={styles.td}>{e.signatures?.length || 0}</td>
+                    <td style={styles.td}>{new Date(e.updatedAt).toLocaleDateString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {allExperiments.length === 0 && (
+              <div style={styles.emptyState}><p>No experiments found.</p></div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div style={styles.tableContainer}>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Title</th>
+                <th style={styles.th}>Creator</th>
+                <th style={styles.th}>Category</th>
+                <th style={styles.th}>Version</th>
+                <th style={styles.th}>Public</th>
+                <th style={styles.th}>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allMethods.map((m: any) => (
+                <tr key={m.id} style={styles.tr}>
+                  <td style={styles.td}>{m.title}</td>
+                  <td style={styles.td}>{m.creator?.name || '—'}</td>
+                  <td style={styles.td}>{m.category ? formatModality(m.category) : '—'}</td>
+                  <td style={styles.td}>v{m.version}</td>
+                  <td style={styles.td}>{m.isPublic ? '✓ Yes' : '✗ No'}</td>
+                  <td style={styles.td}>{new Date(m.updatedAt).toLocaleDateString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {allMethods.length === 0 && (
+            <div style={styles.emptyState}><p>No methods found.</p></div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Projects Panel - Organize experiments by project
+function ProjectsPanel({ user, methods }: { user: AuthUser; methods: Method[] }) {
+  const [projects, setProjects] = useState<any[]>([]);
+  const [selectedProject, setSelectedProject] = useState<string | null>(null);
+  const [projectExperiments, setProjectExperiments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadProjects();
+  }, []);
+
+  const loadProjects = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/projects`, {
+        headers: { 'x-user-id': user.id }
+      });
+      if (res.ok) {
+        setProjects(await res.json());
+      }
+    } catch (error) {
+      console.error('Failed to load projects:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadProjectExperiments = async (projectName: string) => {
+    setSelectedProject(projectName);
+    try {
+      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectName)}/experiments`, {
+        headers: { 'x-user-id': user.id }
+      });
+      if (res.ok) {
+        setProjectExperiments(await res.json());
+      }
+    } catch (error) {
+      console.error('Failed to load project experiments:', error);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={styles.panel}>
+        <div style={styles.emptyState}><p>Loading projects...</p></div>
+      </div>
+    );
+  }
+
+  if (selectedProject) {
+    return (
+      <div style={styles.panel}>
+        <div style={styles.header}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <button onClick={() => setSelectedProject(null)} style={styles.secondaryButton}>
+              ← Back to Projects
+            </button>
+            <div>
+              <h2 style={styles.pageTitle}>{selectedProject}</h2>
+              <p style={styles.pageSubtitle}>{projectExperiments.length} experiment(s)</p>
+            </div>
+          </div>
+        </div>
+
+        <div style={styles.tableContainer}>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Title</th>
+                <th style={styles.th}>Owner</th>
+                <th style={styles.th}>Modality</th>
+                <th style={styles.th}>Status</th>
+                <th style={styles.th}>Signatures</th>
+                <th style={styles.th}>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {projectExperiments.map((e: any) => (
+                <tr key={e.id} style={styles.tr}>
+                  <td style={styles.td}>{e.title}</td>
+                  <td style={styles.td}>{e.user?.name || '—'}</td>
+                  <td style={styles.td}><span style={styles.badge}>{formatModality(e.modality)}</span></td>
+                  <td style={styles.td}><StatusBadge status={e.status || 'draft'} /></td>
+                  <td style={styles.td}>{e.signatures?.length || 0}</td>
+                  <td style={styles.td}>{new Date(e.updatedAt).toLocaleDateString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {projectExperiments.length === 0 && (
+            <div style={styles.emptyState}><p>No experiments in this project.</p></div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.panel}>
+      <div style={styles.header}>
+        <div>
+          <h2 style={styles.pageTitle}>Projects</h2>
+          <p style={styles.pageSubtitle}>Organize experiments by project</p>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
+        {projects.map((project: any) => (
+          <div
+            key={project.name}
+            onClick={() => loadProjectExperiments(project.name)}
+            style={{
+              background: '#1e293b',
+              borderRadius: '12px',
+              padding: '20px',
+              cursor: 'pointer',
+              border: '1px solid #334155',
+              transition: 'all 0.2s',
+            }}
+            onMouseOver={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+            onMouseOut={(e) => { e.currentTarget.style.borderColor = '#334155'; e.currentTarget.style.transform = 'translateY(0)'; }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '18px', color: '#f8fafc' }}>
+                {project.name === 'Unassigned' ? '📥 Unassigned' : `📁 ${project.name}`}
+              </h3>
+              <span style={{ 
+                background: '#3b82f620', 
+                color: '#3b82f6', 
+                padding: '4px 8px', 
+                borderRadius: '12px', 
+                fontSize: '12px',
+                fontWeight: 600
+              }}>
+                {project.experimentCount} experiments
+              </span>
+            </div>
+            
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+              {Object.entries(project.statuses || {}).map(([status, count]) => (
+                <span key={status} style={{ fontSize: '11px', color: '#94a3b8' }}>
+                  {status}: {count as number}
+                </span>
+              ))}
+            </div>
+            
+            <div style={{ fontSize: '12px', color: '#64748b' }}>
+              Last updated: {new Date(project.lastUpdated).toLocaleDateString()}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {projects.length === 0 && (
+        <div style={styles.emptyState}>
+          <p>No projects yet. Create experiments with project names to organize them!</p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Styles
