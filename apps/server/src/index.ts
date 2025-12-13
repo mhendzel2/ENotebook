@@ -4,8 +4,13 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import crypto from 'crypto';
 import http from 'http';
+import * as fs from 'fs';
+import * as path from 'path';
+import { createRequire } from 'module';
 import { z } from 'zod';
 import { v4 as uuid } from 'uuid';
+import { parse as parseCsv } from 'csv-parse/sync';
+import rateLimit from 'express-rate-limit';
 import { PrismaClient } from '@prisma/client';
 import { 
   Experiment, Method, User, Role, 
@@ -826,6 +831,85 @@ const inventoryItemSchema = z.object({
   storageConditions: z.string().optional()
 });
 
+const inventoryItemUpdateSchema = inventoryItemSchema.partial().refine(
+  (val) => Object.keys(val).length > 0,
+  { message: 'At least one field must be provided for update' }
+);
+
+const importBase64FileSchema = z.object({
+  filename: z.string().min(1).max(255),
+  data: z.string().min(1),
+  options: z.any().optional()
+});
+
+const INVENTORY_IMPORT_MAX_BYTES = 50 * 1024 * 1024; // 50MB
+const INVENTORY_IMPORT_MAX_ROWS = 10000;
+const IMPORTS_DIR = process.env.IMPORTS_DIR || path.join(process.cwd(), 'data', 'imports');
+
+if (!fs.existsSync(IMPORTS_DIR)) {
+  fs.mkdirSync(IMPORTS_DIR, { recursive: true });
+}
+
+const inventoryImportLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const userId = (req as any).user?.id;
+    return userId || req.ip || 'anonymous';
+  }
+});
+
+function decodeBase64ToBuffer(base64: string, maxBytes: number) {
+  let buf: Buffer;
+  try {
+    buf = Buffer.from(base64, 'base64');
+  } catch {
+    return { ok: false as const, error: 'Invalid base64 data' };
+  }
+  if (buf.length === 0) return { ok: false as const, error: 'Empty file data' };
+  if (buf.length > maxBytes) {
+    return { ok: false as const, error: `File too large. Maximum size is ${Math.floor(maxBytes / (1024 * 1024))}MB` };
+  }
+  return { ok: true as const, buffer: buf };
+}
+
+function normalizeRecordKeys(record: Record<string, any>): Record<string, any> {
+  const normalized: Record<string, any> = {};
+  for (const [key, value] of Object.entries(record)) {
+    normalized[String(key).trim().toLowerCase()] = value;
+  }
+  return normalized;
+}
+
+function getFirstField(record: Record<string, any>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (value === undefined || value === null) continue;
+    const str = String(value).trim();
+    if (str.length === 0) continue;
+    return str;
+  }
+  return undefined;
+}
+
+function parseOptionalNumber(raw: unknown): number | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const str = String(raw).trim();
+  if (!str) return undefined;
+  const n = Number(str);
+  if (!Number.isFinite(n)) return undefined;
+  return n;
+}
+
+function sanitizeBracketIdentifier(name: string): string | null {
+  const trimmed = name.trim();
+  if (trimmed.length === 0 || trimmed.length > 128) return null;
+  if (!/^[A-Za-z0-9_\-\s]+$/.test(trimmed)) return null;
+  return trimmed;
+}
+
 app.get('/inventory', async (req, res) => {
   try {
     const categoryQuery = req.query.category;
@@ -878,6 +962,412 @@ app.post('/inventory', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to create inventory item' });
+  }
+});
+
+app.patch('/inventory/:id', async (req, res) => {
+  const parse = inventoryItemUpdateSchema.safeParse(req.body);
+  if (!parse.success) {
+    return res.status(400).json({ error: parse.error.flatten() });
+  }
+  try {
+    const existing = await prisma.inventoryItem.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Item not found' });
+
+    const { properties, ...rest } = parse.data;
+    const updated = await prisma.inventoryItem.update({
+      where: { id: req.params.id },
+      data: {
+        ...rest,
+        properties: properties !== undefined ? (properties ? JSON.stringify(properties) : null) : undefined
+      }
+    });
+
+    res.json({
+      ...updated,
+      properties: updated.properties ? JSON.parse(updated.properties) : undefined
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update inventory item' });
+  }
+});
+
+app.delete('/inventory/:id', async (req, res) => {
+  const user = (req as any).user as User;
+  try {
+    // Keep inventory safe: only managers/admins can delete items.
+    if (user?.role !== 'admin' && user?.role !== 'manager') {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
+    const existing = await prisma.inventoryItem.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Item not found' });
+
+    await prisma.$transaction(async (tx) => {
+      await tx.stock.deleteMany({ where: { itemId: req.params.id } });
+      await tx.inventoryItem.delete({ where: { id: req.params.id } });
+    });
+
+    res.json({ status: 'deleted' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete inventory item' });
+  }
+});
+
+// Import inventory items/stocks from CSV
+app.post('/inventory/import/csv', inventoryImportLimiter, async (req, res) => {
+  const user = (req as any).user as User;
+  const parse = importBase64FileSchema.safeParse(req.body);
+  if (!parse.success) return res.status(400).json({ error: parse.error.flatten() });
+
+  if (user?.role !== 'admin' && user?.role !== 'manager') {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  const { filename, data } = parse.data;
+  const ext = path.extname(filename).toLowerCase();
+  if (ext !== '.csv' && ext !== '.tsv') {
+    return res.status(400).json({ error: 'Only .csv or .tsv files are supported' });
+  }
+
+  const decoded = decodeBase64ToBuffer(data, INVENTORY_IMPORT_MAX_BYTES);
+  if (!decoded.ok) return res.status(400).json({ error: decoded.error });
+
+  try {
+    const text = decoded.buffer.toString('utf8');
+    const records = parseCsv(text, {
+      columns: true,
+      skip_empty_lines: true,
+      relax_column_count: true,
+      trim: true
+    }) as Record<string, any>[];
+
+    if (records.length > INVENTORY_IMPORT_MAX_ROWS) {
+      return res.status(400).json({ error: `CSV has too many rows (${records.length}). Maximum is ${INVENTORY_IMPORT_MAX_ROWS}.` });
+    }
+
+    const summary = {
+      rows: records.length,
+      itemsCreated: 0,
+      itemsUpdated: 0,
+      stocksCreated: 0,
+      warnings: [] as string[],
+      errors: [] as string[]
+    };
+
+    for (let i = 0; i < records.length; i++) {
+      const row = normalizeRecordKeys(records[i]);
+      const name = getFirstField(row, ['name', 'item', 'itemname', 'reagent', 'material']);
+      if (!name) {
+        if (summary.errors.length < 25) summary.errors.push(`Row ${i + 2}: missing item name`);
+        continue;
+      }
+
+      const categoryRaw = (getFirstField(row, ['category', 'type']) || 'reagent').toLowerCase();
+      const category = INVENTORY_CATEGORIES.includes(categoryRaw as any) ? (categoryRaw as any) : ('reagent' as any);
+      if (categoryRaw && categoryRaw !== category) {
+        if (summary.warnings.length < 25) summary.warnings.push(`Row ${i + 2}: unknown category '${categoryRaw}', defaulted to 'reagent'`);
+      }
+
+      const catalogNumber = getFirstField(row, ['catalognumber', 'catalog', 'sku', 'partnumber']);
+      const manufacturer = getFirstField(row, ['manufacturer', 'mfg']);
+      const supplier = getFirstField(row, ['supplier', 'vendor']);
+      const unit = getFirstField(row, ['unit', 'uom']);
+      const description = getFirstField(row, ['description', 'desc']);
+      const safetyInfo = getFirstField(row, ['safetyinfo', 'safety', 'hazard']);
+      const storageConditions = getFirstField(row, ['storageconditions', 'storage']);
+
+      const quantity = parseOptionalNumber(getFirstField(row, ['quantity', 'qty', 'amount']));
+      const lotNumber = getFirstField(row, ['lotnumber', 'lot']);
+      const barcode = getFirstField(row, ['barcode']);
+      const notes = getFirstField(row, ['notes', 'note']);
+      const expirationDateRaw = getFirstField(row, ['expirationdate', 'expiry', 'expires']);
+      const locationName = getFirstField(row, ['location', 'freezer', 'room', 'shelf']);
+
+      const itemMatchWhere = catalogNumber
+        ? { name, catalogNumber }
+        : { name };
+
+      const existing = await prisma.inventoryItem.findFirst({ where: itemMatchWhere });
+      const item = existing
+        ? await prisma.inventoryItem.update({
+            where: { id: existing.id },
+            data: {
+              category,
+              description: description ?? existing.description,
+              catalogNumber: catalogNumber ?? existing.catalogNumber,
+              manufacturer: manufacturer ?? existing.manufacturer,
+              supplier: supplier ?? existing.supplier,
+              unit: unit ?? existing.unit,
+              safetyInfo: safetyInfo ?? existing.safetyInfo,
+              storageConditions: storageConditions ?? existing.storageConditions
+            }
+          })
+        : await prisma.inventoryItem.create({
+            data: {
+              name,
+              category,
+              description,
+              catalogNumber,
+              manufacturer,
+              supplier,
+              unit,
+              safetyInfo,
+              storageConditions
+            }
+          });
+
+      if (existing) summary.itemsUpdated++;
+      else summary.itemsCreated++;
+
+      if (quantity !== undefined && quantity > 0) {
+        let locationId: string | undefined;
+        if (locationName) {
+          const existingLocation = await prisma.location.findFirst({ where: { name: locationName } });
+          const loc = existingLocation || (await prisma.location.create({ data: { name: locationName } }));
+          locationId = loc.id;
+        }
+
+        let expirationDate: Date | undefined;
+        if (expirationDateRaw) {
+          const d = new Date(expirationDateRaw);
+          if (!Number.isNaN(d.valueOf())) expirationDate = d;
+          else if (summary.warnings.length < 25) summary.warnings.push(`Row ${i + 2}: invalid expirationDate '${expirationDateRaw}' ignored`);
+        }
+
+        try {
+          await prisma.stock.create({
+            data: {
+              itemId: item.id,
+              locationId,
+              lotNumber,
+              quantity,
+              initialQuantity: quantity,
+              expirationDate,
+              barcode,
+              notes
+            }
+          });
+          summary.stocksCreated++;
+        } catch (e: any) {
+          // Common case: duplicate barcode unique constraint
+          if (summary.errors.length < 25) summary.errors.push(`Row ${i + 2}: failed to create stock (${e?.code || 'error'})`);
+        }
+      }
+    }
+
+    res.json(summary);
+  } catch (error) {
+    console.error('CSV import error:', error);
+    res.status(500).json({ error: 'Failed to import CSV' });
+  }
+});
+
+// Import inventory items/stocks from Microsoft Access (.mdb/.accdb)
+app.post('/inventory/import/access', inventoryImportLimiter, async (req, res) => {
+  const user = (req as any).user as User;
+  const parse = importBase64FileSchema.safeParse(req.body);
+  if (!parse.success) return res.status(400).json({ error: parse.error.flatten() });
+
+  if (user?.role !== 'admin' && user?.role !== 'manager') {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  const { filename, data, options } = parse.data;
+  const ext = path.extname(filename).toLowerCase();
+  if (ext !== '.mdb' && ext !== '.accdb') {
+    return res.status(400).json({ error: 'Only .mdb or .accdb files are supported' });
+  }
+
+  const decoded = decodeBase64ToBuffer(data, INVENTORY_IMPORT_MAX_BYTES);
+  if (!decoded.ok) return res.status(400).json({ error: decoded.error });
+
+  const tableRequested = typeof options?.table === 'string' ? options.table : 'Inventory';
+  const sanitizedTable = sanitizeBracketIdentifier(tableRequested);
+  if (!sanitizedTable) return res.status(400).json({ error: 'Invalid table name' });
+
+  const mapping = (options?.mapping && typeof options.mapping === 'object') ? options.mapping : {};
+  const require = createRequire(import.meta.url);
+
+  let ADODB: any;
+  try {
+    ADODB = require('node-adodb');
+  } catch (e) {
+    return res.status(500).json({
+      error: 'Access import dependency not available (node-adodb)',
+      hint: 'Run server install (pnpm/npm install) and ensure dependencies are built.'
+    });
+  }
+
+  const fileId = uuid();
+  const importPath = path.join(IMPORTS_DIR, `${fileId}${ext}`);
+
+  try {
+    fs.writeFileSync(importPath, decoded.buffer);
+
+    const providers: string[] = ext === '.accdb'
+      ? ['Microsoft.ACE.OLEDB.12.0']
+      : ['Microsoft.ACE.OLEDB.12.0', 'Microsoft.Jet.OLEDB.4.0'];
+
+    let connection: any;
+    let lastError: any;
+    for (const provider of providers) {
+      try {
+        const connectionString = `Provider=${provider};Data Source=${importPath};Persist Security Info=False;`;
+        connection = ADODB.open(connectionString);
+        // quick sanity query to validate provider works
+        await connection.query(`SELECT TOP 1 * FROM [${sanitizedTable}]`);
+        lastError = null;
+        break;
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    if (!connection) {
+      return res.status(400).json({
+        error: 'Unable to open Access database with available OLEDB providers',
+        hint: 'Install Microsoft Access Database Engine (ACE OLEDB 12.0+) on this machine, or export your tables to CSV.',
+        details: String(lastError?.message || lastError || 'unknown')
+      });
+    }
+
+    const rows = (await connection.query(`SELECT * FROM [${sanitizedTable}]`)) as Record<string, any>[];
+    if (rows.length > INVENTORY_IMPORT_MAX_ROWS) {
+      return res.status(400).json({ error: `Access table has too many rows (${rows.length}). Maximum is ${INVENTORY_IMPORT_MAX_ROWS}.` });
+    }
+
+    const summary = {
+      rows: rows.length,
+      itemsCreated: 0,
+      itemsUpdated: 0,
+      stocksCreated: 0,
+      warnings: [] as string[],
+      errors: [] as string[]
+    };
+
+    for (let i = 0; i < rows.length; i++) {
+      const rowRaw = rows[i] || {};
+      const row = normalizeRecordKeys(rowRaw);
+
+      const nameKey = typeof mapping?.name === 'string' ? mapping.name : undefined;
+      const categoryKey = typeof mapping?.category === 'string' ? mapping.category : undefined;
+      const quantityKey = typeof mapping?.quantity === 'string' ? mapping.quantity : undefined;
+      const unitKey = typeof mapping?.unit === 'string' ? mapping.unit : undefined;
+      const locationKey = typeof mapping?.location === 'string' ? mapping.location : undefined;
+      const catalogKey = typeof mapping?.catalogNumber === 'string' ? mapping.catalogNumber : undefined;
+      const manufacturerKey = typeof mapping?.manufacturer === 'string' ? mapping.manufacturer : undefined;
+      const supplierKey = typeof mapping?.supplier === 'string' ? mapping.supplier : undefined;
+      const lotKey = typeof mapping?.lotNumber === 'string' ? mapping.lotNumber : undefined;
+      const barcodeKey = typeof mapping?.barcode === 'string' ? mapping.barcode : undefined;
+      const expiryKey = typeof mapping?.expirationDate === 'string' ? mapping.expirationDate : undefined;
+      const notesKey = typeof mapping?.notes === 'string' ? mapping.notes : undefined;
+      const descKey = typeof mapping?.description === 'string' ? mapping.description : undefined;
+
+      const name = nameKey ? getFirstField(row, [String(nameKey).toLowerCase()]) : getFirstField(row, ['name', 'item', 'itemname']);
+      if (!name) {
+        if (summary.errors.length < 25) summary.errors.push(`Row ${i + 2}: missing item name`);
+        continue;
+      }
+
+      const categoryRaw = (categoryKey
+        ? (getFirstField(row, [String(categoryKey).toLowerCase()]) || 'reagent')
+        : (getFirstField(row, ['category', 'type']) || 'reagent')
+      ).toLowerCase();
+      const category = INVENTORY_CATEGORIES.includes(categoryRaw as any) ? (categoryRaw as any) : ('reagent' as any);
+
+      const catalogNumber = catalogKey ? getFirstField(row, [String(catalogKey).toLowerCase()]) : getFirstField(row, ['catalognumber', 'catalog', 'sku']);
+      const manufacturer = manufacturerKey ? getFirstField(row, [String(manufacturerKey).toLowerCase()]) : getFirstField(row, ['manufacturer', 'mfg']);
+      const supplier = supplierKey ? getFirstField(row, [String(supplierKey).toLowerCase()]) : getFirstField(row, ['supplier', 'vendor']);
+      const unit = unitKey ? getFirstField(row, [String(unitKey).toLowerCase()]) : getFirstField(row, ['unit', 'uom']);
+      const description = descKey ? getFirstField(row, [String(descKey).toLowerCase()]) : getFirstField(row, ['description', 'desc']);
+
+      const quantityRaw = quantityKey ? getFirstField(row, [String(quantityKey).toLowerCase()]) : getFirstField(row, ['quantity', 'qty', 'amount']);
+      const quantity = parseOptionalNumber(quantityRaw);
+
+      const locationName = locationKey ? getFirstField(row, [String(locationKey).toLowerCase()]) : getFirstField(row, ['location', 'freezer', 'room', 'shelf']);
+      const lotNumber = lotKey ? getFirstField(row, [String(lotKey).toLowerCase()]) : getFirstField(row, ['lotnumber', 'lot']);
+      const barcode = barcodeKey ? getFirstField(row, [String(barcodeKey).toLowerCase()]) : getFirstField(row, ['barcode']);
+      const notes = notesKey ? getFirstField(row, [String(notesKey).toLowerCase()]) : getFirstField(row, ['notes', 'note']);
+      const expirationDateRaw = expiryKey ? getFirstField(row, [String(expiryKey).toLowerCase()]) : getFirstField(row, ['expirationdate', 'expiry', 'expires']);
+
+      const itemMatchWhere = catalogNumber
+        ? { name, catalogNumber }
+        : { name };
+
+      const existing = await prisma.inventoryItem.findFirst({ where: itemMatchWhere });
+      const item = existing
+        ? await prisma.inventoryItem.update({
+            where: { id: existing.id },
+            data: {
+              category,
+              description: description ?? existing.description,
+              catalogNumber: catalogNumber ?? existing.catalogNumber,
+              manufacturer: manufacturer ?? existing.manufacturer,
+              supplier: supplier ?? existing.supplier,
+              unit: unit ?? existing.unit
+            }
+          })
+        : await prisma.inventoryItem.create({
+            data: {
+              name,
+              category,
+              description,
+              catalogNumber,
+              manufacturer,
+              supplier,
+              unit
+            }
+          });
+
+      if (existing) summary.itemsUpdated++;
+      else summary.itemsCreated++;
+
+      if (quantity !== undefined && quantity > 0) {
+        let locationId: string | undefined;
+        if (locationName) {
+          const existingLocation = await prisma.location.findFirst({ where: { name: locationName } });
+          const loc = existingLocation || (await prisma.location.create({ data: { name: locationName } }));
+          locationId = loc.id;
+        }
+
+        let expirationDate: Date | undefined;
+        if (expirationDateRaw) {
+          const d = new Date(expirationDateRaw);
+          if (!Number.isNaN(d.valueOf())) expirationDate = d;
+          else if (summary.warnings.length < 25) summary.warnings.push(`Row ${i + 2}: invalid expirationDate '${expirationDateRaw}' ignored`);
+        }
+
+        try {
+          await prisma.stock.create({
+            data: {
+              itemId: item.id,
+              locationId,
+              lotNumber,
+              quantity,
+              initialQuantity: quantity,
+              expirationDate,
+              barcode,
+              notes
+            }
+          });
+          summary.stocksCreated++;
+        } catch (e: any) {
+          if (summary.errors.length < 25) summary.errors.push(`Row ${i + 2}: failed to create stock (${e?.code || 'error'})`);
+        }
+      }
+    }
+
+    res.json(summary);
+  } catch (error) {
+    console.error('Access import error:', error);
+    res.status(500).json({ error: 'Failed to import Access database' });
+  } finally {
+    try {
+      if (fs.existsSync(importPath)) fs.unlinkSync(importPath);
+    } catch {
+      // ignore cleanup errors
+    }
   }
 });
 

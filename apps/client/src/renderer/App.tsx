@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { MODALITIES, Modality, Method, Experiment } from '@eln/shared';
+import { MODALITIES, INVENTORY_CATEGORIES, Modality, Method, Experiment, InventoryItem, Stock, Location as InventoryLocation } from '@eln/shared';
 import { v4 as uuid } from 'uuid';
 import { LoginPage, CreateAccountPage, AuthUser } from './components/Auth';
 
@@ -620,24 +620,362 @@ function ExperimentForm({ user, methods, onClose, onSaved }: {
 
 // Inventory Panel (Placeholder)
 function InventoryPanel({ user }: { user: AuthUser }) {
+  type StockWithLocation = Stock & { location?: InventoryLocation | null };
+  type ItemWithStocks = InventoryItem & { stocks?: StockWithLocation[] };
+
+  const [items, setItems] = useState<ItemWithStocks[]>([]);
+  const [locations, setLocations] = useState<InventoryLocation[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState<string>('');
+  const [message, setMessage] = useState<string | null>(null);
+
+  const [showAddItem, setShowAddItem] = useState(false);
+  const [newItemName, setNewItemName] = useState('');
+  const [newItemCategory, setNewItemCategory] = useState<string>(INVENTORY_CATEGORIES[0] || 'reagent');
+  const [newItemUnit, setNewItemUnit] = useState('');
+  const [newItemCatalog, setNewItemCatalog] = useState('');
+
+  const [stockItemId, setStockItemId] = useState<string | null>(null);
+  const [stockQuantity, setStockQuantity] = useState('');
+  const [stockLocationName, setStockLocationName] = useState('');
+  const [stockLot, setStockLot] = useState('');
+  const [stockBarcode, setStockBarcode] = useState('');
+  const [stockNotes, setStockNotes] = useState('');
+
+  const [accessTable, setAccessTable] = useState('Inventory');
+  const [accessMappingJson, setAccessMappingJson] = useState('');
+
+  const headers = useMemo(() => ({ 'x-user-id': user.id, 'Content-Type': 'application/json' }), [user.id]);
+
+  const fetchInventory = useCallback(async () => {
+    setLoading(true);
+    setMessage(null);
+    try {
+      const params = new URLSearchParams();
+      if (category) params.set('category', category);
+      if (search.trim()) params.set('search', search.trim());
+      const res = await fetch(`${API_BASE}/inventory?${params.toString()}`, { headers: { 'x-user-id': user.id } });
+      if (!res.ok) throw new Error('Failed to load inventory');
+      const data = await res.json();
+      setItems(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      setMessage(e?.message || 'Failed to load inventory');
+    } finally {
+      setLoading(false);
+    }
+  }, [category, search, headers, user.id]);
+
+  const fetchLocations = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/locations`, { headers: { 'x-user-id': user.id } });
+      if (!res.ok) return;
+      const data = await res.json();
+      setLocations(Array.isArray(data) ? data : []);
+    } catch {
+      // ignore
+    }
+  }, [user.id]);
+
+  useEffect(() => {
+    fetchInventory();
+    fetchLocations();
+  }, [fetchInventory, fetchLocations]);
+
+  const totalQuantity = useCallback((item: ItemWithStocks) => {
+    const stocks = item.stocks || [];
+    return stocks.reduce((sum, s) => sum + (typeof s.quantity === 'number' ? s.quantity : 0), 0);
+  }, []);
+
+  const readFileAsBase64 = async (file: File) => {
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.onload = () => {
+        const result = String(reader.result || '');
+        const comma = result.indexOf(',');
+        if (comma === -1) return reject(new Error('Invalid file encoding'));
+        resolve(result.slice(comma + 1));
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleCreateItem = async () => {
+    setMessage(null);
+    if (!newItemName.trim()) {
+      setMessage('Item name is required');
+      return;
+    }
+    try {
+      const body = {
+        name: newItemName.trim(),
+        category: newItemCategory,
+        unit: newItemUnit.trim() || undefined,
+        catalogNumber: newItemCatalog.trim() || undefined,
+      };
+      const res = await fetch(`${API_BASE}/inventory`, { method: 'POST', headers, body: JSON.stringify(body) });
+      if (!res.ok) throw new Error('Failed to create item');
+      setShowAddItem(false);
+      setNewItemName('');
+      setNewItemUnit('');
+      setNewItemCatalog('');
+      await fetchInventory();
+    } catch (e: any) {
+      setMessage(e?.message || 'Failed to create item');
+    }
+  };
+
+  const ensureLocationId = async (name: string): Promise<string | undefined> => {
+    const trimmed = name.trim();
+    if (!trimmed) return undefined;
+    const existing = locations.find(l => l.name.toLowerCase() === trimmed.toLowerCase());
+    if (existing) return existing.id;
+    const res = await fetch(`${API_BASE}/locations`, { method: 'POST', headers, body: JSON.stringify({ name: trimmed }) });
+    if (!res.ok) return undefined;
+    const created = await res.json();
+    await fetchLocations();
+    return created?.id;
+  };
+
+  const handleAddStock = async () => {
+    setMessage(null);
+    if (!stockItemId) return;
+    const qty = Number(stockQuantity);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      setMessage('Quantity must be a positive number');
+      return;
+    }
+
+    try {
+      const locationId = await ensureLocationId(stockLocationName);
+      const body = {
+        itemId: stockItemId,
+        quantity: qty,
+        locationId,
+        lotNumber: stockLot.trim() || undefined,
+        barcode: stockBarcode.trim() || undefined,
+        notes: stockNotes.trim() || undefined,
+      };
+      const res = await fetch(`${API_BASE}/stock`, { method: 'POST', headers, body: JSON.stringify(body) });
+      if (!res.ok) throw new Error('Failed to create stock');
+      setStockItemId(null);
+      setStockQuantity('');
+      setStockLocationName('');
+      setStockLot('');
+      setStockBarcode('');
+      setStockNotes('');
+      await fetchInventory();
+    } catch (e: any) {
+      setMessage(e?.message || 'Failed to create stock');
+    }
+  };
+
+  const importCsv = async (file: File) => {
+    setMessage(null);
+    try {
+      const base64 = await readFileAsBase64(file);
+      const res = await fetch(`${API_BASE}/inventory/import/csv`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ filename: file.name, data: base64 })
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || 'CSV import failed');
+      setMessage(`Imported CSV: ${payload.itemsCreated} created, ${payload.itemsUpdated} updated, ${payload.stocksCreated} stocks`);
+      await fetchInventory();
+      await fetchLocations();
+    } catch (e: any) {
+      setMessage(e?.message || 'CSV import failed');
+    }
+  };
+
+  const importAccess = async (file: File) => {
+    setMessage(null);
+    let mapping: any = undefined;
+    if (accessMappingJson.trim()) {
+      try {
+        mapping = JSON.parse(accessMappingJson);
+      } catch {
+        setMessage('Access mapping JSON is invalid');
+        return;
+      }
+    }
+    try {
+      const base64 = await readFileAsBase64(file);
+      const res = await fetch(`${API_BASE}/inventory/import/access`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ filename: file.name, data: base64, options: { table: accessTable || 'Inventory', mapping } })
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || 'Access import failed');
+      setMessage(`Imported Access: ${payload.itemsCreated} created, ${payload.itemsUpdated} updated, ${payload.stocksCreated} stocks`);
+      await fetchInventory();
+      await fetchLocations();
+    } catch (e: any) {
+      setMessage(e?.message || 'Access import failed');
+    }
+  };
+
   return (
     <div style={styles.panel}>
       <div style={styles.header}>
         <div>
           <h2 style={styles.pageTitle}>Inventory</h2>
-          <p style={styles.pageSubtitle}>Manage reagents, samples, and equipment</p>
+          <p style={styles.pageSubtitle}>Manage items and stock, and import from CSV/Access</p>
+          {message && <p style={{ marginTop: 8, color: message.includes('Imported') ? '#10b981' : '#ef4444' }}>{message}</p>}
         </div>
-        <button style={styles.primaryButton}>+ Add Item</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <label style={{ ...styles.secondaryButton, cursor: 'pointer' }}>
+            Import CSV
+            <input
+              type="file"
+              accept=".csv,.tsv,text/csv"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) importCsv(f);
+                e.currentTarget.value = '';
+              }}
+            />
+          </label>
+          <label style={{ ...styles.secondaryButton, cursor: 'pointer' }}>
+            Import Access
+            <input
+              type="file"
+              accept=".mdb,.accdb"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) importAccess(f);
+                e.currentTarget.value = '';
+              }}
+            />
+          </label>
+          <button style={styles.primaryButton} onClick={() => setShowAddItem(v => !v)}>+ Add Item</button>
+        </div>
       </div>
-      <div style={styles.tabsContainer}>
-        <button style={{...styles.tabButton, ...styles.tabButtonActive}}>All Items</button>
-        <button style={styles.tabButton}>Reagents</button>
-        <button style={styles.tabButton}>Samples</button>
-        <button style={styles.tabButton}>Equipment</button>
-        <button style={styles.tabButton}>Pools</button>
+
+      <div style={{ ...styles.section, marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search name, catalog, manufacturer"
+            style={{ ...styles.formInput, width: 320 }}
+          />
+          <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ ...styles.formSelect, width: 200 }}>
+            <option value="">All categories</option>
+            {INVENTORY_CATEGORIES.map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <button style={styles.secondaryButton} onClick={fetchInventory} disabled={loading}>{loading ? 'Loading…' : 'Refresh'}</button>
+        </div>
+
+        <div style={{ marginTop: 12, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span style={{ opacity: 0.8 }}>Access table:</span>
+            <input value={accessTable} onChange={(e) => setAccessTable(e.target.value)} style={{ ...styles.formInput, width: 220 }} />
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1, minWidth: 320 }}>
+            <span style={{ opacity: 0.8 }}>Mapping (optional JSON):</span>
+            <input
+              value={accessMappingJson}
+              onChange={(e) => setAccessMappingJson(e.target.value)}
+              placeholder='{"name":"ItemName","quantity":"Qty","location":"Freezer"}'
+              style={{ ...styles.formInput, flex: 1 }}
+            />
+          </div>
+        </div>
       </div>
-      <div style={styles.emptyState}>
-        <p>Inventory management coming soon. Track stocks, locations, and usage.</p>
+
+      {showAddItem && (
+        <div style={styles.detailCard}>
+          <h3 style={styles.sectionTitle}>New Item</h3>
+          <div style={styles.formGrid}>
+            <div>
+              <label style={styles.formLabel}>Name</label>
+              <input value={newItemName} onChange={(e) => setNewItemName(e.target.value)} style={styles.formInput} />
+            </div>
+            <div>
+              <label style={styles.formLabel}>Category</label>
+              <select value={newItemCategory} onChange={(e) => setNewItemCategory(e.target.value)} style={styles.formSelect}>
+                {INVENTORY_CATEGORIES.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={styles.formLabel}>Unit</label>
+              <input value={newItemUnit} onChange={(e) => setNewItemUnit(e.target.value)} style={styles.formInput} placeholder="ml, mg, vials…" />
+            </div>
+            <div>
+              <label style={styles.formLabel}>Catalog #</label>
+              <input value={newItemCatalog} onChange={(e) => setNewItemCatalog(e.target.value)} style={styles.formInput} />
+            </div>
+          </div>
+          <div style={styles.formActions}>
+            <button style={styles.secondaryButton} onClick={() => setShowAddItem(false)}>Cancel</button>
+            <button style={styles.primaryButton} onClick={handleCreateItem}>Create</button>
+          </div>
+        </div>
+      )}
+
+      {stockItemId && (
+        <div style={styles.detailCard}>
+          <h3 style={styles.sectionTitle}>Add Stock</h3>
+          <div style={styles.formGrid}>
+            <div>
+              <label style={styles.formLabel}>Quantity</label>
+              <input value={stockQuantity} onChange={(e) => setStockQuantity(e.target.value)} style={styles.formInput} placeholder="e.g. 10" />
+            </div>
+            <div>
+              <label style={styles.formLabel}>Location</label>
+              <input value={stockLocationName} onChange={(e) => setStockLocationName(e.target.value)} style={styles.formInput} placeholder="Freezer -80 / Shelf A" />
+            </div>
+            <div>
+              <label style={styles.formLabel}>Lot #</label>
+              <input value={stockLot} onChange={(e) => setStockLot(e.target.value)} style={styles.formInput} />
+            </div>
+            <div>
+              <label style={styles.formLabel}>Barcode</label>
+              <input value={stockBarcode} onChange={(e) => setStockBarcode(e.target.value)} style={styles.formInput} />
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label style={styles.formLabel}>Notes</label>
+              <input value={stockNotes} onChange={(e) => setStockNotes(e.target.value)} style={styles.formInput} />
+            </div>
+          </div>
+          <div style={styles.formActions}>
+            <button style={styles.secondaryButton} onClick={() => setStockItemId(null)}>Cancel</button>
+            <button style={styles.primaryButton} onClick={handleAddStock}>Add</button>
+          </div>
+        </div>
+      )}
+
+      <div style={styles.section}>
+        <h3 style={styles.sectionTitle}>Items</h3>
+        {items.length === 0 && !loading && (
+          <p style={styles.emptyMessage}>No inventory items yet. Add one, or import a CSV/Access table.</p>
+        )}
+        {items.map(item => (
+          <div key={item.id} style={styles.listItem}>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <span style={styles.listItemTitle}>{item.name}</span>
+              <span style={styles.listItemMeta}>
+                {item.category}{item.catalogNumber ? ` • ${item.catalogNumber}` : ''}{item.manufacturer ? ` • ${item.manufacturer}` : ''}
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontWeight: 600 }}>
+                {totalQuantity(item)}{item.unit ? ` ${item.unit}` : ''}
+              </span>
+              <button style={styles.secondaryButton} onClick={() => setStockItemId(item.id)}>Add Stock</button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -1534,6 +1872,11 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 16,
   },
   formRow: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 16,
+  },
+  formGrid: {
     display: 'grid',
     gridTemplateColumns: '1fr 1fr',
     gap: 16,
