@@ -4,24 +4,15 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import crypto from 'crypto';
 import http from 'http';
-import * as fs from 'fs';
-import * as path from 'path';
-import { createRequire } from 'module';
-import { z } from 'zod';
-import { v4 as uuid } from 'uuid';
-import { parse as parseCsv } from 'csv-parse/sync';
-import rateLimit from 'express-rate-limit';
 import { PrismaClient } from '@prisma/client';
 import { 
-  Experiment, Method, User, Role, 
-  MODALITIES, INVENTORY_CATEGORIES, STOCK_STATUSES, EXPERIMENT_STATUSES, SIGNATURE_TYPES 
+  User
 } from '@eln/shared';
 import { createApiKeyRoutes, apiKeyAuth, requirePermission as apiKeyRequirePermission } from './middleware/apiKey.js';
 import { createExportRoutes } from './routes/export.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createAttachmentRoutes } from './routes/attachments.js';
 import { createReportRoutes } from './routes/reports.js';
-import { requirePermission, requireAllPermissions } from './middleware/permissions.js';
 import { createSignatureRoutes, SignatureService } from './services/signatures.js';
 import { createAuditRoutes, AuditTrailService } from './services/auditTrail.js';
 import { createElnExportRoutes } from './services/elnExport.js';
@@ -35,6 +26,14 @@ import { SamplePoolService, createPoolRoutes } from './services/pools.js';
 import { createGraphQLRoutes } from './services/graphql.js';
 import { createMobileRoutes } from './services/mobile.js';
 import { createMLAnalyticsRoutes } from './services/mlAnalytics.js';
+import { createExperimentsRoutes } from './routes/experiments.js';
+import { createMethodsRoutes } from './routes/methods.js';
+import { createAdminRoutes } from './routes/admin.js';
+import { createSyncRoutes } from './routes/sync.js';
+import { createNotificationsRoutes } from './routes/notifications.js';
+import { createAuditLogRoutes } from './routes/auditLog.js';
+import { createInventoryRoutes } from './routes/inventory.js';
+import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 
 const prisma = new PrismaClient();
 
@@ -168,55 +167,54 @@ app.use('/api/mobile', createMobileRoutes(prisma));
 // ==================== ML ANALYTICS ====================
 app.use('/api/ml', createMLAnalyticsRoutes());
 
-const methodSchema = z.object({
-  title: z.string().min(1),
-  category: z.string().optional(),
-  steps: z.any(),
-  reagents: z.any().optional(),
-  attachments: z.any().optional(),
-  isPublic: z.boolean().default(true)
+// ==================== ENHANCED AUDIT LOGGING ====================
+
+async function logChange(
+  entityType: string,
+  entityId: string,
+  operation: string,
+  oldValue?: any,
+  newValue?: any,
+  fieldName?: string,
+  deviceId?: string
+) {
+  await prisma.changeLog.create({
+    data: {
+      entityType,
+      entityId,
+      operation,
+      oldValue: oldValue ? JSON.stringify(oldValue) : undefined,
+      newValue: newValue ? JSON.stringify(newValue) : undefined,
+      fieldName,
+      deviceId
+    }
+  });
+}
+
+// ==================== CORE APP ROUTES ====================
+
+app.use(createMethodsRoutes(prisma, logChange));
+app.use(createExperimentsRoutes(prisma, logChange));
+app.use(createAdminRoutes(prisma));
+app.use(createSyncRoutes(prisma));
+app.use(createNotificationsRoutes(prisma));
+app.use(createAuditLogRoutes(prisma));
+app.use(createInventoryRoutes(prisma));
+
+// ==================== NOT FOUND + ERROR HANDLING ====================
+
+app.use(notFoundHandler);
+app.use(errorHandler);
+
+const port = process.env.PORT || 4000;
+server.listen(port, () => {
+  // eslint-disable-next-line no-console
+  console.log(`ELN server listening on http://localhost:${port}`);
+  console.log(`WebSocket server ready for real-time collaboration`);
 });
 
-const methodUpdateSchema = methodSchema.partial().refine(
-  (val) => Object.keys(val).length > 0,
-  { message: 'At least one field must be provided for update' }
-);
-
-app.get('/methods', async (_req, res) => {
-  try {
-    const methods = await prisma.method.findMany();
-    // Prisma's Json type already returns parsed objects
-    res.json(methods);
-  } catch (error) {
-    res.status(500).json({ error: 'Database error' });
-  }
-});
-
-app.post('/methods', async (req, res) => {
-  const parse = methodSchema.safeParse(req.body);
-  if (!parse.success) {
-    return res.status(400).json({ error: parse.error.flatten() });
-  }
-  const user = (req as any).user as User;
-  
-  try {
-    const { steps, reagents, attachments, ...rest } = parse.data;
-    const method = await prisma.method.create({
-      data: {
-        createdBy: user.id,
-        version: 1,
-        ...rest,
-        steps: steps,
-        reagents: reagents || undefined,
-        attachments: attachments || undefined
-      }
-    });
-    res.status(201).json(method);
-  } catch (error) {
-    console.error('Failed to save method:', error);
-    res.status(500).json({ error: 'Failed to save method' });
-  }
-});
+// Export collaboration manager for use in routes
+export { collaboration };
 
 app.patch('/methods/:id', async (req, res) => {
   const user = (req as any).user as User;
