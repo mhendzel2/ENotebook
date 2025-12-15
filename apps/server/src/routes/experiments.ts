@@ -4,17 +4,17 @@
  */
 
 import { Router } from 'express';
+import crypto from 'crypto';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import { PrismaClient } from '@prisma/client';
-import { User, MODALITIES, EXPERIMENT_STATUSES } from '@eln/shared';
+import { User, MODALITIES, EXPERIMENT_STATUSES, SIGNATURE_TYPES } from '@eln/shared';
 import { 
   asyncHandler, 
   NotFoundError, 
   ForbiddenError, 
   ValidationError,
-  successResponse,
-  paginatedResponse
+  errorResponse
 } from '../middleware/errorHandler.js';
 
 // ==================== SCHEMAS ====================
@@ -85,9 +85,9 @@ export function createExperimentsRoutes(
 
   router.get('/experiments', asyncHandler(async (req, res) => {
     const user = (req as any).user as User;
-    const where = canAccessExperiment(user, { userId: '' }) ? {} : { userId: user.id };
+    const where = user.role === 'manager' || user.role === 'admin' ? {} : { userId: user.id };
     const data = await prisma.experiment.findMany({ where });
-    successResponse(res, data);
+    res.json(data);
   }));
 
   // ==================== GET SINGLE EXPERIMENT ====================
@@ -133,7 +133,7 @@ export function createExperimentsRoutes(
       throw new ForbiddenError('Not authorized to view this experiment');
     }
     
-    successResponse(res, experiment);
+    res.json(experiment);
   }));
 
   // ==================== SEARCH RESULTS ====================
@@ -245,7 +245,7 @@ export function createExperimentsRoutes(
     matches.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
     const paged = matches.slice(offset, offset + limit);
 
-    successResponse(res, {
+    res.json({
       query: q,
       types: { experiments: includeExperiments, reports: includeReports },
       limit,
@@ -276,7 +276,7 @@ export function createExperimentsRoutes(
       }
     });
     
-    successResponse(res, experiment, 201);
+    res.status(201).json(experiment);
   }));
 
   // ==================== UPDATE EXPERIMENT ====================
@@ -311,7 +311,7 @@ export function createExperimentsRoutes(
 
     await logChange('experiments', experimentId, 'update', existing, updated);
 
-    successResponse(res, updated);
+    res.json(updated);
   }));
 
   // ==================== PROJECT ORGANIZATION ====================
@@ -340,7 +340,7 @@ export function createExperimentsRoutes(
       }
     }
     
-    successResponse(res, {
+    res.json({
       projects: byProject,
       unassigned,
       projectList: Object.keys(byProject).sort(),
@@ -383,7 +383,7 @@ export function createExperimentsRoutes(
       lastUpdated: stats.lastUpdated
     })).sort((a, b) => b.lastUpdated.getTime() - a.lastUpdated.getTime());
     
-    successResponse(res, projects);
+    res.json(projects);
   }));
 
   router.get('/projects/:projectName/experiments', asyncHandler(async (req, res) => {
@@ -404,7 +404,7 @@ export function createExperimentsRoutes(
       orderBy: { updatedAt: 'desc' }
     });
     
-    successResponse(res, experiments);
+    res.json(experiments);
   }));
 
   // ==================== CREATE FROM METHOD TEMPLATE ====================
@@ -433,7 +433,7 @@ export function createExperimentsRoutes(
       }
     });
 
-    successResponse(res, experiment, 201);
+    res.status(201).json(experiment);
   }));
 
   // ==================== STOCK USAGE ====================
@@ -471,18 +471,17 @@ export function createExperimentsRoutes(
       })
     ]);
 
-    successResponse(res, usage, 201);
+    res.status(201).json(usage);
   }));
 
   // ==================== SIGNATURES ====================
 
   const signatureSchema = z.object({
-    signatureType: z.enum(['author', 'witness', 'reviewer', 'approver']),
+    signatureType: z.enum(SIGNATURE_TYPES),
     meaning: z.string().optional()
   });
 
   function computeContentHash(content: any): string {
-    const crypto = require('crypto');
     return crypto.createHash('sha256').update(JSON.stringify(content)).digest('hex');
   }
 
@@ -521,7 +520,7 @@ export function createExperimentsRoutes(
       });
     }
 
-    successResponse(res, signature, 201);
+    res.status(201).json(signature);
   }));
 
   router.get('/experiments/:id/signatures', asyncHandler(async (req, res) => {
@@ -529,7 +528,7 @@ export function createExperimentsRoutes(
       where: { experimentId: req.params.id },
       include: { user: { select: { id: true, name: true, email: true } } }
     });
-    successResponse(res, signatures);
+    res.json(signatures);
   }));
 
   // ==================== COMMENTS ====================
@@ -548,7 +547,7 @@ export function createExperimentsRoutes(
       },
       orderBy: { createdAt: 'asc' }
     });
-    successResponse(res, comments.filter(c => !c.parentId));
+    res.json(comments.filter(c => !c.parentId));
   }));
 
   router.post('/experiments/:id/comments', asyncHandler(async (req, res) => {
@@ -588,7 +587,7 @@ export function createExperimentsRoutes(
       });
     }
 
-    successResponse(res, comment, 201);
+    res.status(201).json(comment);
   }));
 
   return router;

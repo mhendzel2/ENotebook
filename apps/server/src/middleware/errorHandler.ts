@@ -4,7 +4,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { ZodError } from 'zod';
+import { ZodError, ZodSchema } from 'zod';
 
 // ==================== CUSTOM ERROR CLASSES ====================
 
@@ -84,83 +84,19 @@ export class ExternalServiceError extends AppError {
 
 // ==================== API RESPONSE HELPERS ====================
 
-export interface ApiResponse<T = unknown> {
-  success: boolean;
-  data?: T;
-  error?: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
-  meta?: {
-    timestamp: string;
-    requestId?: string;
-    pagination?: {
-      page: number;
-      limit: number;
-      total: number;
-      totalPages: number;
-    };
-  };
-}
-
-export function successResponse<T>(
-  res: Response,
-  data: T,
-  statusCode: number = 200,
-  meta?: ApiResponse['meta']
-): Response {
-  const response: ApiResponse<T> = {
-    success: true,
-    data,
-    meta: {
-      timestamp: new Date().toISOString(),
-      ...meta,
-    },
-  };
-  return res.status(statusCode).json(response);
-}
-
-export function errorResponse(
-  res: Response,
-  error: AppError | Error,
-  requestId?: string
-): Response {
+export function errorResponse(res: Response, error: AppError | Error, requestId?: string): Response {
   const statusCode = error instanceof AppError ? error.statusCode : 500;
   const code = error instanceof AppError ? error.code : 'INTERNAL_ERROR';
   const details = error instanceof AppError ? error.details : undefined;
 
-  const response: ApiResponse = {
-    success: false,
-    error: {
-      code,
-      message: error.message,
-      details,
-    },
-    meta: {
-      timestamp: new Date().toISOString(),
-      requestId,
-    },
-  };
-
-  return res.status(statusCode).json(response);
-}
-
-export function paginatedResponse<T>(
-  res: Response,
-  data: T[],
-  page: number,
-  limit: number,
-  total: number
-): Response {
-  return successResponse(res, data, 200, {
-    timestamp: new Date().toISOString(),
-    pagination: {
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit),
-    },
+  // Preserve the existing API's error shape ({ error: ... }) to avoid
+  // breaking the current client while still adding structured fields.
+  return res.status(statusCode).json({
+    error: error.message,
+    code,
+    details,
+    requestId,
+    timestamp: new Date().toISOString()
   });
 }
 
@@ -270,8 +206,6 @@ export function notFoundHandler(req: Request, res: Response, _next: NextFunction
 }
 
 // ==================== REQUEST VALIDATION HELPERS ====================
-
-import { z, ZodSchema } from 'zod';
 
 export function validateBody<T>(schema: ZodSchema<T>) {
   return (req: Request, _res: Response, next: NextFunction) => {

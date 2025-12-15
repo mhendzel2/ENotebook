@@ -12,8 +12,7 @@ import {
   asyncHandler, 
   NotFoundError, 
   ForbiddenError, 
-  ValidationError,
-  successResponse
+  ValidationError
 } from '../middleware/errorHandler.js';
 
 // ==================== SCHEMAS ====================
@@ -54,7 +53,7 @@ export function createMethodsRoutes(
 
   router.get('/methods', asyncHandler(async (_req, res) => {
     const methods = await prisma.method.findMany();
-    successResponse(res, methods);
+    res.json(methods);
   }));
 
   // ==================== CREATE METHOD ====================
@@ -79,7 +78,7 @@ export function createMethodsRoutes(
       }
     });
     
-    successResponse(res, method, 201);
+    res.status(201).json(method);
   }));
 
   // ==================== UPDATE METHOD ====================
@@ -114,7 +113,7 @@ export function createMethodsRoutes(
 
     await logChange('methods', methodId, 'update', existing, updated);
 
-    successResponse(res, updated);
+    res.json(updated);
   }));
 
   // ==================== METHOD VERSIONING ====================
@@ -151,7 +150,7 @@ export function createMethodsRoutes(
       }
     });
 
-    successResponse(res, newVersion, 201);
+    res.status(201).json(newVersion);
   }));
 
   router.get('/methods/:id/versions', asyncHandler(async (req, res) => {
@@ -168,7 +167,7 @@ export function createMethodsRoutes(
       orderBy: { version: 'desc' }
     });
 
-    successResponse(res, versions);
+    res.json(versions);
   }));
 
   // ==================== METHOD SIGNATURES ====================
@@ -206,7 +205,7 @@ export function createMethodsRoutes(
       }
     });
 
-    successResponse(res, signature, 201);
+    res.status(201).json(signature);
   }));
 
   // ==================== METHOD COMMENTS ====================
@@ -225,7 +224,7 @@ export function createMethodsRoutes(
       },
       orderBy: { createdAt: 'asc' }
     });
-    successResponse(res, comments.filter(c => !c.parentId));
+    res.json(comments.filter(c => !c.parentId));
   }));
 
   router.post('/methods/:id/comments', asyncHandler(async (req, res) => {
@@ -252,7 +251,7 @@ export function createMethodsRoutes(
       include: { author: { select: { id: true, name: true } } }
     });
 
-    successResponse(res, comment, 201);
+    res.status(201).json(comment);
   }));
 
   return router;
