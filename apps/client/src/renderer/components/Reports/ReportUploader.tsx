@@ -26,7 +26,7 @@ export function ReportUploader({
   onReportAdded,
   onError,
   disabled = false,
-  apiBaseUrl = 'http://localhost:3001/api'
+  apiBaseUrl = 'http://localhost:4000'
 }: ReportUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploads, setUploads] = useState<UploadProgress[]>([]);
@@ -81,7 +81,7 @@ export function ReportUploader({
       });
 
       // Upload to server
-      const response = await fetch(`${apiBaseUrl}/experiments/${experimentId}/reports`, {
+      const response = await fetch(`${apiBaseUrl}/api/experiments/${experimentId}/reports`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -89,7 +89,7 @@ export function ReportUploader({
         },
         body: JSON.stringify({
           filename: file.name,
-          mimeType: file.type || 'application/octet-stream',
+          mime: file.type || 'application/octet-stream',
           data: base64Data,
           reportType: selectedType,
           notes: notes || undefined
