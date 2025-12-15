@@ -261,7 +261,7 @@ const experimentSchema = z.object({
   params: z.any().optional(),
   observations: z.any().optional(),
   resultsSummary: z.string().optional(),
-  dataLink: z.string().url().optional(),
+  dataLink: z.string().optional(), // Supports URLs or file paths (multiple paths separated by newlines)
   tags: z.array(z.string()).optional(),
   status: z.enum(EXPERIMENT_STATUSES).default('draft')
 });

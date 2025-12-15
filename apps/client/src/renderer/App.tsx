@@ -436,6 +436,18 @@ function ExperimentsPanel({ experiments, methods, onRefresh, user }: {
               <p>{selectedExperiment.resultsSummary}</p>
             </>
           )}
+          {selectedExperiment.dataLink && (
+            <>
+              <h4>Original Data Path(s):</h4>
+              <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                {selectedExperiment.dataLink.split('\n').map((path, idx) => (
+                  <div key={idx} style={{ padding: '4px 0', fontFamily: 'monospace', fontSize: '13px', color: '#334155' }}>
+                    📁 {path.trim()}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
     );
@@ -654,6 +666,7 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
     return JSON.stringify(experiment.observations, null, 2);
   });
   const [resultsSummary, setResultsSummary] = useState(experiment.resultsSummary || '');
+  const [dataLink, setDataLink] = useState(experiment.dataLink || '');
   const [status, setStatus] = useState<string>(experiment.status || 'draft');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -681,6 +694,7 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
           protocolRef: protocolRef || null,
           observations: { text: observations },
           resultsSummary: resultsSummary || null,
+          dataLink: dataLink || null,
           status,
         }),
       });
@@ -832,6 +846,19 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
                 rows={4}
                 placeholder="Summarize your results..."
               />
+            </div>
+            <div style={styles.formField}>
+              <label style={styles.formLabel}>Original Data Path(s)</label>
+              <textarea
+                value={dataLink}
+                onChange={e => setDataLink(e.target.value)}
+                style={styles.formTextarea}
+                rows={3}
+                placeholder="Enter file paths or URLs to original data (one per line)&#10;e.g., //server/share/experiment_data/run001&#10;     C:\Data\FRAP\2025-01-15"
+              />
+              <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#64748b' }}>
+                Enter paths to raw data files, network shares, or URLs. Use one path per line for multiple locations.
+              </p>
             </div>
             <div style={styles.formActions}>
               <button type="button" onClick={onClose} style={styles.secondaryButton}>Cancel</button>
