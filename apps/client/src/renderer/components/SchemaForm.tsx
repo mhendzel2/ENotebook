@@ -230,48 +230,79 @@ export function SchemaForm({
 
 // ==================== FIELD RENDERER ====================
 
-function Field({ schema, path, value, onChange, errors, readOnly, compact }: FieldProps) {
+function Field({ schema, path, value, onChange, errors, readOnly, compact, onAttachmentUpload, formValue, parentRequired }: FieldProps) {
   const fieldErrors = errors.filter(e => e.path === path);
   const hasError = fieldErrors.length > 0;
 
   const label = schema.title || formatLabel(path);
   const widget = schema['ui:widget'];
-  const isRequired = false; // Would check parent schema's required array
+  const isRequired = parentRequired?.includes(path.split('.').pop() || '');
+  const fieldId = `field-${path}`;
 
   // Render based on type and widget
   let input: React.ReactNode;
 
-  if (schema.enum) {
+  if (widget === 'attachment' || widget === 'file') {
+    input = (
+      <AttachmentField
+        value={value as AttachmentPreview[] | undefined}
+        onChange={v => onChange(path, v)}
+        onUpload={onAttachmentUpload ? (f) => onAttachmentUpload(f, path) : undefined}
+        readOnly={readOnly}
+        accept={schema['ui:accept'] as string}
+        multiple={schema['ui:multiple'] as boolean}
+      />
+    );
+  } else if (widget === 'image-annotator') {
+    input = (
+      <ImageAnnotatorField
+        value={value as AttachmentPreview | undefined}
+        onChange={v => onChange(path, v)}
+        onUpload={onAttachmentUpload ? (f) => onAttachmentUpload(f, path) : undefined}
+        readOnly={readOnly}
+      />
+    );
+  } else if (schema.enum) {
     input = (
       <SelectField
+        id={fieldId}
         options={schema.enum as string[]}
         value={value as string}
         onChange={v => onChange(path, v)}
         readOnly={readOnly}
+        hasError={hasError}
+        required={isRequired}
       />
     );
   } else if (widget === 'select') {
     input = (
       <SelectField
+        id={fieldId}
         options={schema.enum as string[] || []}
         value={value as string}
         onChange={v => onChange(path, v)}
         readOnly={readOnly}
+        hasError={hasError}
+        required={isRequired}
       />
     );
   } else if (widget === 'textarea' || widget === 'richtext') {
     input = (
       <TextAreaField
+        id={fieldId}
         value={value as string}
         onChange={v => onChange(path, v)}
         placeholder={schema['ui:placeholder']}
         readOnly={readOnly}
         richText={widget === 'richtext'}
+        hasError={hasError}
+        required={isRequired}
       />
     );
   } else if (schema.type === 'boolean') {
     input = (
       <CheckboxField
+        id={fieldId}
         value={value as boolean}
         onChange={v => onChange(path, v)}
         readOnly={readOnly}
@@ -280,6 +311,7 @@ function Field({ schema, path, value, onChange, errors, readOnly, compact }: Fie
   } else if (schema.type === 'number' || schema.type === 'integer') {
     input = (
       <NumberField
+        id={fieldId}
         value={value as number}
         onChange={v => onChange(path, v)}
         min={schema.minimum}
@@ -287,6 +319,8 @@ function Field({ schema, path, value, onChange, errors, readOnly, compact }: Fie
         step={schema.type === 'integer' ? 1 : undefined}
         readOnly={readOnly}
         scientific={widget === 'scientific'}
+        hasError={hasError}
+        required={isRequired}
       />
     );
   } else if (schema.type === 'array') {
@@ -299,6 +333,8 @@ function Field({ schema, path, value, onChange, errors, readOnly, compact }: Fie
         errors={errors}
         readOnly={readOnly}
         compact={compact}
+        onAttachmentUpload={onAttachmentUpload}
+        formValue={formValue}
       />
     );
   } else if (schema.type === 'object' && schema.properties) {
@@ -311,30 +347,45 @@ function Field({ schema, path, value, onChange, errors, readOnly, compact }: Fie
         errors={errors}
         readOnly={readOnly}
         compact={compact}
+        onAttachmentUpload={onAttachmentUpload}
+        formValue={formValue}
       />
     );
   } else {
     // Default to text input
     input = (
       <TextField
+        id={fieldId}
         value={value as string}
         onChange={v => onChange(path, v)}
         placeholder={schema['ui:placeholder']}
         pattern={schema.pattern}
         readOnly={readOnly}
+        hasError={hasError}
+        required={isRequired}
       />
     );
   }
 
   return (
-    <div style={compact ? styles.fieldCompact : styles.field}>
-      <label style={styles.label}>
+    <div style={compact ? styles.fieldCompact : styles.field} id={fieldId}>
+      <label htmlFor={fieldId} style={styles.label}>
         {label}
-        {isRequired && <span style={styles.required}>*</span>}
+        {isRequired && <span style={styles.required} aria-label="required">*</span>}
       </label>
       {input}
-      {schema['ui:help'] && <span style={styles.help}>{schema['ui:help']}</span>}
-      {hasError && <span style={styles.errorMessage}>{fieldErrors[0].message}</span>}
+      {schema['ui:help'] && (
+        <span style={styles.help} id={`${fieldId}-help`}>{schema['ui:help']}</span>
+      )}
+      {hasError && (
+        <span 
+          style={styles.errorMessage} 
+          role="alert" 
+          id={`${fieldId}-error`}
+        >
+          {fieldErrors[0].message}
+        </span>
+      )}
     </div>
   );
 }
