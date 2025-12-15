@@ -5,9 +5,7 @@ import morgan from 'morgan';
 import crypto from 'crypto';
 import http from 'http';
 import { PrismaClient } from '@prisma/client';
-import { 
-  User
-} from '@eln/shared';
+import type { User } from '@eln/shared/dist/types.js';
 import { createApiKeyRoutes, apiKeyAuth, requirePermission as apiKeyRequirePermission } from './middleware/apiKey.js';
 import { createExportRoutes } from './routes/export.js';
 import { createAuthRoutes } from './routes/auth.js';
@@ -222,7 +220,7 @@ export { collaboration };
  *
  * These routes were extracted into modular routers under src/routes/.
  * They are intentionally disabled to avoid duplicate route registrations.
- */
+
 
 app.patch('/methods/:id', async (req, res) => {
   const user = (req as any).user as User;

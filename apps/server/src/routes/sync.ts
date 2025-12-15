@@ -65,7 +65,7 @@ export function createSyncRoutes(prisma: PrismaClient): Router {
           const existing = await tx.experiment.findUnique({ where: { id: incExp.id } });
 
           const { params, observations, tags, ...rest } = incExp;
-          const dataToSave = {
+          const dataToSave: any = {
             ...rest,
             params: params || undefined,
             observations: observations || undefined,

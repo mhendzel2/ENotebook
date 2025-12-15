@@ -5,7 +5,7 @@
 
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { User } from '@eln/shared';
+import type { User } from '@eln/shared/dist/types.js';
 
 export function createAuditLogRoutes(prisma: PrismaClient): Router {
   const router = Router();

@@ -8,7 +8,8 @@ import crypto from 'crypto';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import { PrismaClient } from '@prisma/client';
-import { User, MODALITIES, EXPERIMENT_STATUSES, SIGNATURE_TYPES } from '@eln/shared';
+import { MODALITIES, EXPERIMENT_STATUSES, SIGNATURE_TYPES } from '@eln/shared/dist/types.js';
+import type { User } from '@eln/shared/dist/types.js';
 import { 
   asyncHandler, 
   NotFoundError, 

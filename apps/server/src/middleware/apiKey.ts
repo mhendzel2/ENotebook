@@ -7,7 +7,8 @@ import { Router, Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
-import { API_PERMISSIONS, APIPermission } from '@eln/shared';
+import { API_PERMISSIONS } from '@eln/shared/dist/types.js';
+import type { APIPermission } from '@eln/shared/dist/types.js';
 
 const router = Router();
 

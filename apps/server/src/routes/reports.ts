@@ -14,7 +14,7 @@ import { v4 as uuid, validate as uuidValidate } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { REPORT_TYPES, REPORT_ALLOWED_EXTENSIONS } from '@eln/shared';
+import { REPORT_TYPES, REPORT_ALLOWED_EXTENSIONS } from '@eln/shared/dist/types.js';
 
 // Rate limiting configuration
 interface RateLimitEntry {

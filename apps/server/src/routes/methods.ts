@@ -7,7 +7,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
-import { User } from '@eln/shared';
+import type { User } from '@eln/shared/dist/types.js';
 import { 
   asyncHandler, 
   NotFoundError, 
