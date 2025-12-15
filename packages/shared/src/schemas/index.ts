@@ -820,8 +820,23 @@ export const plasmidPropertiesSchema: JSONSchema = {
     copyNumber: { type: 'string', title: 'Copy Number', enum: ['low', 'medium', 'high'] },
     expressionHost: { type: 'string', title: 'Expression Host', enum: ['E.coli', 'mammalian', 'insect', 'yeast'] },
     fusionTag: { type: 'string', title: 'Fusion Tag' },
+    sequence: {
+      type: 'string',
+      title: 'Sequence',
+      description: 'Paste the plasmid sequence (IUPAC DNA letters allowed). Whitespace is OK.',
+      pattern: '^[ACGTRYSWKMBDHVNacgtryswkmbdhvn\\s]*$',
+      'ui:widget': 'textarea'
+    },
     sequenceVerified: { type: 'boolean', title: 'Sequence Verified' },
-    mapFile: { type: 'string', title: 'Map File (attachment ID)' }
+    restrictionMaps: {
+      type: 'array',
+      title: 'Restriction Maps',
+      description: 'Upload one or more restriction map files (PDF/images).',
+      'ui:widget': 'attachment',
+      'ui:accept': 'image/*,application/pdf,text/plain,text/markdown,text/html',
+      'ui:multiple': true
+    },
+    mapFile: { type: 'string', title: 'Legacy Map File (attachment ID)', description: 'Deprecated: prefer Restriction Maps.' }
   }
 };
 

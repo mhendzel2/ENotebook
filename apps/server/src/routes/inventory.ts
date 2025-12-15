@@ -40,6 +40,12 @@ const inventoryItemSchema = z.object({
   storageConditions: z.string().optional()
 });
 
+const inventoryAttachmentSchema = z.object({
+  filename: z.string().min(1).max(255),
+  data: z.string().min(1),
+  mime: z.string().optional()
+});
+
 const inventoryItemUpdateSchema = inventoryItemSchema.partial().refine(
   (val) => Object.keys(val).length > 0,
   { message: 'At least one field must be provided for update' }
@@ -65,8 +71,38 @@ const INVENTORY_IMPORT_MAX_BYTES = 50 * 1024 * 1024; // 50MB
 const INVENTORY_IMPORT_MAX_ROWS = 10000;
 const IMPORTS_DIR = process.env.IMPORTS_DIR || path.join(process.cwd(), 'data', 'imports');
 
+const INVENTORY_ATTACHMENTS_DIR = process.env.INVENTORY_ATTACHMENTS_DIR || path.join(process.cwd(), 'data', 'inventory_attachments');
+
+const INVENTORY_ATTACHMENT_ALLOWED_IMAGE_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/tiff',
+  'image/bmp',
+  'image/svg+xml'
+];
+
+const INVENTORY_ATTACHMENT_ALLOWED_DOCUMENT_TYPES = [
+  'application/pdf',
+  'text/plain',
+  'application/json',
+  'text/html',
+  'text/markdown',
+  'text/x-markdown'
+];
+
+const INVENTORY_ATTACHMENT_ALLOWED_TYPES = [
+  ...INVENTORY_ATTACHMENT_ALLOWED_IMAGE_TYPES,
+  ...INVENTORY_ATTACHMENT_ALLOWED_DOCUMENT_TYPES
+];
+
 if (!fs.existsSync(IMPORTS_DIR)) {
   fs.mkdirSync(IMPORTS_DIR, { recursive: true });
+}
+
+if (!fs.existsSync(INVENTORY_ATTACHMENTS_DIR)) {
+  fs.mkdirSync(INVENTORY_ATTACHMENTS_DIR, { recursive: true });
 }
 
 const inventoryImportLimiter = rateLimit({
@@ -127,6 +163,115 @@ function sanitizeBracketIdentifier(name: string): string | null {
   if (trimmed.length === 0 || trimmed.length > 128) return null;
   if (!/^[A-Za-z0-9_\-\s]+$/.test(trimmed)) return null;
   return trimmed;
+}
+
+function normalizeInventoryCategory(raw: string | undefined): string {
+  if (!raw) return 'reagent';
+  const lowered = raw.trim().toLowerCase();
+  if (!lowered) return 'reagent';
+
+  const normalized = lowered
+    .replace(/\//g, '_')
+    .replace(/[\s\-]+/g, '_')
+    .replace(/_+$/g, '')
+    .replace(/^_+/g, '');
+
+  const mapped = (() => {
+    switch (normalized) {
+      case 'reagents':
+      case 'reagent':
+        return 'reagent';
+      case 'plasmids':
+      case 'plasmid':
+        return 'plasmid';
+      case 'antibodies':
+      case 'antibody':
+        return 'antibody';
+      case 'primers':
+      case 'primer':
+        return 'primer';
+      case 'cellline':
+      case 'cell_lines':
+      case 'cell_line':
+      case 'cellline(s)':
+      case 'cell_lines(s)':
+      case 'celllines':
+      case 'cell_line(s)':
+      case 'cell':
+      case 'cellline_stock':
+      case 'cell_line_stock':
+        return 'cell_line';
+      case 'samples':
+      case 'sample':
+        return 'sample';
+      case 'consumables':
+      case 'consumable':
+        return 'consumable';
+      default:
+        return normalized;
+    }
+  })();
+
+  return INVENTORY_CATEGORIES.includes(mapped as any) ? mapped : 'reagent';
+}
+
+function safeJoinPath(baseDir: string, ...segments: string[]): string | null {
+  const joinedPath = path.join(baseDir, ...segments);
+  const resolvedBase = path.resolve(baseDir);
+  const resolvedPath = path.resolve(joinedPath);
+  if (!resolvedPath.startsWith(resolvedBase + path.sep) && resolvedPath !== resolvedBase) {
+    return null;
+  }
+  return resolvedPath;
+}
+
+function sanitizeFilename(filename: string): string {
+  return filename
+    .replace(/[/\\:*?"<>|]/g, '_')
+    .replace(/\.{2,}/g, '.')
+    .substring(0, 255);
+}
+
+function guessMimeType(filename: string): string {
+  const ext = path.extname(filename).toLowerCase();
+  const mimeMap: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.tiff': 'image/tiff',
+    '.tif': 'image/tiff',
+    '.bmp': 'image/bmp',
+    '.svg': 'image/svg+xml',
+    '.pdf': 'application/pdf',
+    '.txt': 'text/plain',
+    '.json': 'application/json',
+    '.html': 'text/html',
+    '.htm': 'text/html',
+    '.md': 'text/markdown',
+    '.markdown': 'text/markdown'
+  };
+  return mimeMap[ext] || 'application/octet-stream';
+}
+
+function getExtensionFromMime(mime: string): string {
+  const extMap: Record<string, string> = {
+    'image/jpeg': '.jpg',
+    'image/png': '.png',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+    'image/tiff': '.tiff',
+    'image/bmp': '.bmp',
+    'image/svg+xml': '.svg',
+    'application/pdf': '.pdf',
+    'text/plain': '.txt',
+    'application/json': '.json',
+    'text/html': '.html',
+    'text/markdown': '.md',
+    'text/x-markdown': '.md'
+  };
+  return extMap[mime] || '';
 }
 
 export function createInventoryRoutes(prisma: PrismaClient): Router {
@@ -328,10 +473,13 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
           continue;
         }
 
-        const categoryRaw = (getFirstField(row, ['category', 'type']) || 'reagent').toLowerCase();
-        const category = INVENTORY_CATEGORIES.includes(categoryRaw as any) ? (categoryRaw as any) : ('reagent' as any);
-        if (categoryRaw && categoryRaw !== category) {
-          if (summary.warnings.length < 25) summary.warnings.push(`Row ${i + 2}: unknown category '${categoryRaw}', defaulted to 'reagent'`);
+        const categoryRaw = getFirstField(row, ['category', 'type']) || 'reagent';
+        const category = normalizeInventoryCategory(categoryRaw);
+        if (categoryRaw && category !== categoryRaw.trim().toLowerCase()) {
+          const rawNormalized = categoryRaw.trim().toLowerCase();
+          if (rawNormalized && rawNormalized !== category) {
+            if (summary.warnings.length < 25) summary.warnings.push(`Row ${i + 2}: normalized category '${categoryRaw}' -> '${category}'`);
+          }
         }
 
         const catalogNumber = getFirstField(row, ['catalognumber', 'catalog', 'sku', 'partnumber']);
@@ -537,8 +685,8 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
         const categoryRaw = (categoryKey
           ? (getFirstField(row, [String(categoryKey).toLowerCase()]) || 'reagent')
           : (getFirstField(row, ['category', 'type']) || 'reagent')
-        ).toLowerCase();
-        const category = INVENTORY_CATEGORIES.includes(categoryRaw as any) ? (categoryRaw as any) : ('reagent' as any);
+        );
+        const category = normalizeInventoryCategory(categoryRaw);
 
         const catalogNumber = catalogKey ? getFirstField(row, [String(catalogKey).toLowerCase()]) : getFirstField(row, ['catalognumber', 'catalog', 'sku']);
         const manufacturer = manufacturerKey ? getFirstField(row, [String(manufacturerKey).toLowerCase()]) : getFirstField(row, ['manufacturer', 'mfg']);
@@ -636,6 +784,106 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
   });
 
   // ==================== STOCK ====================
+
+  // ==================== INVENTORY ATTACHMENTS ====================
+
+  router.post('/inventory/:itemId/attachments', async (req, res) => {
+    const user = (req as any).user as User;
+    const itemId = req.params.itemId;
+    const parse = inventoryAttachmentSchema.safeParse(req.body);
+    if (!parse.success) {
+      return res.status(400).json({ error: parse.error.flatten() });
+    }
+
+    if (!z.string().uuid().safeParse(itemId).success) {
+      return res.status(400).json({ error: 'Invalid item ID' });
+    }
+
+    try {
+      const item = await prisma.inventoryItem.findUnique({ where: { id: itemId } });
+      if (!item) return res.status(404).json({ error: 'Item not found' });
+
+      const safeFilename = sanitizeFilename(parse.data.filename);
+      const mimeType = parse.data.mime || guessMimeType(safeFilename);
+
+      if (!INVENTORY_ATTACHMENT_ALLOWED_TYPES.includes(mimeType)) {
+        return res.status(400).json({
+          error: `File type not allowed: ${mimeType}`,
+          allowedTypes: INVENTORY_ATTACHMENT_ALLOWED_TYPES
+        });
+      }
+
+      const decoded = decodeBase64ToBuffer(parse.data.data, INVENTORY_IMPORT_MAX_BYTES);
+      if (!decoded.ok) return res.status(400).json({ error: decoded.error });
+
+      const attachmentId = uuid();
+      const ext = path.extname(safeFilename) || getExtensionFromMime(mimeType);
+
+      const itemDir = safeJoinPath(INVENTORY_ATTACHMENTS_DIR, itemId);
+      if (!itemDir) return res.status(400).json({ error: 'Invalid item attachment path' });
+      if (!fs.existsSync(itemDir)) fs.mkdirSync(itemDir, { recursive: true });
+
+      const filePath = safeJoinPath(itemDir, `${attachmentId}${ext}`);
+      const metaPath = safeJoinPath(itemDir, `${attachmentId}.json`);
+      if (!filePath || !metaPath) return res.status(400).json({ error: 'Invalid attachment path' });
+
+      fs.writeFileSync(filePath, decoded.buffer);
+      fs.writeFileSync(metaPath, JSON.stringify({
+        id: attachmentId,
+        filename: safeFilename,
+        mime: mimeType,
+        size: decoded.buffer.length,
+        ext,
+        uploadedAt: new Date().toISOString(),
+        uploadedBy: user?.id
+      }));
+
+      res.status(201).json({
+        id: attachmentId,
+        filename: safeFilename,
+        mime: mimeType,
+        size: decoded.buffer.length,
+        url: `/inventory/${itemId}/attachments/${attachmentId}`
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to upload inventory attachment' });
+    }
+  });
+
+  router.get('/inventory/:itemId/attachments/:attachmentId', async (req, res) => {
+    const itemId = req.params.itemId;
+    const attachmentId = req.params.attachmentId;
+
+    if (!z.string().uuid().safeParse(itemId).success || !z.string().uuid().safeParse(attachmentId).success) {
+      return res.status(400).json({ error: 'Invalid attachment ID' });
+    }
+
+    try {
+      const itemDir = safeJoinPath(INVENTORY_ATTACHMENTS_DIR, itemId);
+      if (!itemDir) return res.status(400).json({ error: 'Invalid attachment path' });
+
+      const metaPath = safeJoinPath(itemDir, `${attachmentId}.json`);
+      if (!metaPath || !fs.existsSync(metaPath)) {
+        return res.status(404).json({ error: 'Attachment not found' });
+      }
+
+      const metaRaw = fs.readFileSync(metaPath, 'utf8');
+      const meta = JSON.parse(metaRaw || '{}') as { filename?: string; mime?: string; ext?: string };
+      const ext = typeof meta.ext === 'string' ? meta.ext : '';
+      const filePath = safeJoinPath(itemDir, `${attachmentId}${ext}`);
+      if (!filePath || !fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'Attachment file not found' });
+      }
+
+      const filename = typeof meta.filename === 'string' ? meta.filename : `${attachmentId}${ext}`;
+      const mime = typeof meta.mime === 'string' ? meta.mime : guessMimeType(filename);
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      fs.createReadStream(filePath).pipe(res);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to download attachment' });
+    }
+  });
 
   router.get('/stock', async (req, res) => {
     try {
