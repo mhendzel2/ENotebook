@@ -271,6 +271,35 @@ const experimentUpdateSchema = experimentSchema.partial().refine(
   { message: 'At least one field must be provided for update' }
 );
 
+function coerceQueryString(value: unknown, maxLen: number): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, maxLen);
+}
+
+function coerceQueryInt(value: unknown, defaultValue: number, min: number, max: number): number {
+  if (typeof value !== 'string') return defaultValue;
+  const n = Number.parseInt(value, 10);
+  if (!Number.isFinite(n)) return defaultValue;
+  return Math.max(min, Math.min(max, n));
+}
+
+function safeSingleLineSnippet(text: string, maxLen: number): string {
+  return text.replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, maxLen);
+}
+
+const searchResultsLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const userId = (req as any).user?.id;
+    return userId || req.ip || 'anonymous';
+  }
+});
+
 // 1. Replace GET /experiments with Prisma
 app.get('/experiments', async (req, res) => {
   const user = (req as any).user as User;
@@ -333,6 +362,148 @@ app.get('/experiments/:id', async (req, res) => {
   } catch (error) {
     console.error('Failed to get experiment:', error);
     res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Experimental results search across experiments + reports
+// GET /search/results?q=...&types=experiments,reports&limit=25&offset=0
+app.get('/search/results', searchResultsLimiter, async (req, res) => {
+  const user = (req as any).user as User;
+
+  const q = coerceQueryString(req.query.q, 200);
+  if (!q) return res.status(400).json({ error: 'Missing query parameter: q' });
+
+  const limit = coerceQueryInt(req.query.limit, 25, 1, 50);
+  const offset = coerceQueryInt(req.query.offset, 0, 0, 5000);
+  const typesRaw = coerceQueryString(req.query.types, 100);
+  const types = (typesRaw ? typesRaw.split(',') : ['experiments', 'reports'])
+    .map(t => t.trim().toLowerCase())
+    .filter(Boolean);
+  const includeExperiments = types.includes('experiments') || types.includes('experiment');
+  const includeReports = types.includes('reports') || types.includes('report');
+
+  const qLower = q.toLowerCase();
+  const experimentAccessWhere = user.role === 'manager' || user.role === 'admin' ? {} : { userId: user.id };
+
+  type SearchResult =
+    | {
+        type: 'experiment';
+        experimentId: string;
+        title: string;
+        project: string | null;
+        updatedAt: Date;
+        snippet: string;
+      }
+    | {
+        type: 'report';
+        reportId: string;
+        experimentId: string;
+        title: string;
+        project: string | null;
+        updatedAt: Date;
+        reportType: string;
+        filename: string;
+        snippet: string;
+      };
+
+  const matches: SearchResult[] = [];
+
+  try {
+    if (includeExperiments) {
+      const scanExperimentLimit = 2000;
+      const experiments = await prisma.experiment.findMany({
+        where: experimentAccessWhere,
+        orderBy: { updatedAt: 'desc' },
+        take: scanExperimentLimit,
+        select: {
+          id: true,
+          title: true,
+          project: true,
+          resultsSummary: true,
+          observations: true,
+          tags: true,
+          updatedAt: true
+        }
+      });
+
+      for (const exp of experiments) {
+        const parts: string[] = [];
+        parts.push(exp.title);
+        if (exp.project) parts.push(exp.project);
+        if (exp.resultsSummary) parts.push(exp.resultsSummary);
+        if (Array.isArray(exp.tags)) parts.push(exp.tags.join(' '));
+
+        if (exp.observations !== null && exp.observations !== undefined) {
+          try {
+            const obsStr = typeof exp.observations === 'string' ? exp.observations : JSON.stringify(exp.observations);
+            if (obsStr) parts.push(obsStr.slice(0, 20000));
+          } catch {
+            // ignore non-serializable observations
+          }
+        }
+
+        const haystack = parts.join('\n');
+        if (!haystack.toLowerCase().includes(qLower)) continue;
+
+        const snippetSource = exp.resultsSummary || (typeof exp.observations === 'string' ? exp.observations : '') || haystack;
+        matches.push({
+          type: 'experiment',
+          experimentId: exp.id,
+          title: exp.title,
+          project: exp.project,
+          updatedAt: exp.updatedAt,
+          snippet: safeSingleLineSnippet(String(snippetSource), 220)
+        });
+      }
+    }
+
+    if (includeReports) {
+      const scanReportLimit = 2000;
+      const reports = await prisma.report.findMany({
+        where: { experiment: experimentAccessWhere },
+        orderBy: { updatedAt: 'desc' },
+        take: scanReportLimit,
+        include: { experiment: { select: { id: true, title: true, project: true } } }
+      });
+
+      for (const report of reports) {
+        const text = [
+          report.reportType,
+          report.filename,
+          report.originalFilename || '',
+          report.notes || ''
+        ].join('\n');
+        if (!text.toLowerCase().includes(qLower)) continue;
+
+        matches.push({
+          type: 'report',
+          reportId: report.id,
+          experimentId: report.experimentId,
+          title: report.experiment.title,
+          project: report.experiment.project,
+          updatedAt: report.updatedAt,
+          reportType: report.reportType,
+          filename: report.originalFilename || report.filename,
+          snippet: safeSingleLineSnippet(report.notes || `${report.reportType}: ${report.originalFilename || report.filename}`, 220)
+        });
+      }
+    }
+
+    matches.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+    const paged = matches.slice(offset, offset + limit);
+
+    res.json({
+      query: q,
+      types: { experiments: includeExperiments, reports: includeReports },
+      limit,
+      offset,
+      returned: paged.length,
+      totalApprox: matches.length,
+      results: paged.map(r => ({ ...r, updatedAt: r.updatedAt.toISOString() }))
+    });
+  } catch (error) {
+    console.error('Failed to search results:', error);
+    res.status(500).json({ error: 'Search failed' });
   }
 });
 

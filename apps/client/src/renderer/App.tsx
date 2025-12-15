@@ -438,6 +438,18 @@ function ExperimentsPanel({ experiments, methods, onRefresh, user }: {
     );
   }
 
+  if (viewMode === 'edit' && selectedExperiment) {
+    return (
+      <ExperimentEditForm
+        user={user}
+        methods={methods}
+        experiment={selectedExperiment}
+        onClose={handleBack}
+        onSaved={() => { handleBack(); onRefresh(); }}
+      />
+    );
+  }
+
   return (
     <div style={styles.panel}>
       <div style={styles.header}>
@@ -610,6 +622,166 @@ function ExperimentForm({ user, methods, onClose, onSaved }: {
             <button type="button" onClick={onClose} style={styles.secondaryButton}>Cancel</button>
             <button type="submit" style={styles.primaryButton} disabled={saving}>
               {saving ? 'Creating...' : 'Create Experiment'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Experiment Edit Form
+function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: { 
+  user: AuthUser; 
+  methods: Method[];
+  experiment: Experiment;
+  onClose: () => void; 
+  onSaved: () => void;
+}) {
+  const [title, setTitle] = useState(experiment.title);
+  const [project, setProject] = useState(experiment.project || '');
+  const [modality, setModality] = useState<string>(experiment.modality);
+  const [protocolRef, setProtocolRef] = useState(experiment.protocolRef || '');
+  const [observations, setObservations] = useState(() => {
+    if (!experiment.observations) return '';
+    if (typeof experiment.observations === 'string') return experiment.observations;
+    if (typeof experiment.observations === 'object' && 'text' in (experiment.observations as any)) {
+      return (experiment.observations as any).text || '';
+    }
+    return JSON.stringify(experiment.observations, null, 2);
+  });
+  const [resultsSummary, setResultsSummary] = useState(experiment.resultsSummary || '');
+  const [status, setStatus] = useState<string>(experiment.status || 'draft');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`${API_BASE}/experiments/${experiment.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': user.id,
+        },
+        body: JSON.stringify({
+          title,
+          project: project || null,
+          modality: modality || 'molecular_biology',
+          protocolRef: protocolRef || null,
+          observations: { text: observations },
+          resultsSummary: resultsSummary || null,
+          status,
+        }),
+      });
+
+      if (response.ok) {
+        onSaved();
+      } else {
+        const data = await response.json();
+        setError(data.error || 'Failed to update experiment');
+      }
+    } catch (err) {
+      console.error('Failed to update experiment:', err);
+      setError('Failed to update experiment');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={styles.panel}>
+      <div style={styles.header}>
+        <button onClick={onClose} style={styles.secondaryButton}>← Back</button>
+        <h2 style={styles.pageTitle}>Edit Experiment</h2>
+      </div>
+      <div style={styles.detailCard}>
+        {error && (
+          <div style={{ padding: '12px', marginBottom: '16px', background: '#fee2e2', color: '#dc2626', borderRadius: '6px' }}>
+            {error}
+          </div>
+        )}
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={styles.formRow}>
+            <div style={styles.formField}>
+              <label style={styles.formLabel}>Title *</label>
+              <input
+                type="text"
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                style={styles.formInput}
+                required
+                placeholder="Experiment title"
+              />
+            </div>
+            <div style={styles.formField}>
+              <label style={styles.formLabel}>Project</label>
+              <input
+                type="text"
+                value={project}
+                onChange={e => setProject(e.target.value)}
+                style={styles.formInput}
+                placeholder="Project name"
+              />
+            </div>
+          </div>
+          <div style={styles.formRow}>
+            <div style={styles.formField}>
+              <label style={styles.formLabel}>Modality *</label>
+              <select value={modality} onChange={e => setModality(e.target.value)} style={styles.formSelect} required>
+                <option value="">Select modality</option>
+                {MODALITIES.map(m => (
+                  <option key={m} value={m}>{formatModality(m)}</option>
+                ))}
+              </select>
+            </div>
+            <div style={styles.formField}>
+              <label style={styles.formLabel}>Protocol</label>
+              <select value={protocolRef} onChange={e => setProtocolRef(e.target.value)} style={styles.formSelect}>
+                <option value="">Select protocol (optional)</option>
+                {methods.map(m => (
+                  <option key={m.id} value={m.id}>{m.title}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div style={styles.formRow}>
+            <div style={styles.formField}>
+              <label style={styles.formLabel}>Status</label>
+              <select value={status} onChange={e => setStatus(e.target.value)} style={styles.formSelect}>
+                <option value="draft">Draft</option>
+                <option value="in_progress">In Progress</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+          </div>
+          <div style={styles.formField}>
+            <label style={styles.formLabel}>Observations</label>
+            <textarea
+              value={observations}
+              onChange={e => setObservations(e.target.value)}
+              style={styles.formTextarea}
+              rows={6}
+              placeholder="Record your observations..."
+            />
+          </div>
+          <div style={styles.formField}>
+            <label style={styles.formLabel}>Results Summary</label>
+            <textarea
+              value={resultsSummary}
+              onChange={e => setResultsSummary(e.target.value)}
+              style={styles.formTextarea}
+              rows={4}
+              placeholder="Summarize your results..."
+            />
+          </div>
+          <div style={styles.formActions}>
+            <button type="button" onClick={onClose} style={styles.secondaryButton}>Cancel</button>
+            <button type="submit" style={styles.primaryButton} disabled={saving}>
+              {saving ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
         </form>
