@@ -54,6 +54,9 @@ export interface JSONSchema {
   'ui:hidden'?: boolean;
   'ui:options'?: Record<string, unknown>;
   'ui:component'?: string; // Custom React component name
+  'ui:accept'?: string; // File input accept attribute (attachments)
+  'ui:multiple'?: boolean; // Allow multiple file uploads (attachments)
+  'ui:conditions'?: unknown; // Conditional logic rules (evaluated by client)
   
   // References
   $ref?: string;
