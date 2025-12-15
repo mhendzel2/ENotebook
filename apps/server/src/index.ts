@@ -40,6 +40,7 @@ const prisma = new PrismaClient();
 const app = express();
 const server = http.createServer(app);
 
+
 // Initialize WebSocket collaboration
 const collaboration = new CollaborationManager(server, prisma);
 
@@ -215,6 +216,13 @@ server.listen(port, () => {
 
 // Export collaboration manager for use in routes
 export { collaboration };
+
+/*
+ * LEGACY INLINE ROUTES
+ *
+ * These routes were extracted into modular routers under src/routes/.
+ * They are intentionally disabled to avoid duplicate route registrations.
+ */
 
 app.patch('/methods/:id', async (req, res) => {
   const user = (req as any).user as User;
@@ -2050,3 +2058,5 @@ app.get('/audit-log', async (req, res) => {
     res.status(500).json({ error: 'Database error' });
   }
 });
+
+*/
