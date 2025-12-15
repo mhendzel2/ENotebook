@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { MODALITIES, INVENTORY_CATEGORIES, Modality, Method, Experiment, InventoryItem, Stock, Location as InventoryLocation, Attachment, Report } from '@eln/shared';
+import { MODALITIES, INVENTORY_CATEGORIES, getInventoryCategorySchema, Modality, Method, Experiment, InventoryItem, Stock, Location as InventoryLocation, Attachment, Report } from '@eln/shared';
 import { v4 as uuid } from 'uuid';
 import { LoginPage, CreateAccountPage, AuthUser } from './components/Auth';
 import { FileImporter, AttachmentList } from './components/Attachments';
 import { ReportUploader, ReportList } from './components/Reports';
+import { SchemaForm } from './components/SchemaForm';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 
 type NavTab = 'dashboard' | 'methods' | 'experiments' | 'projects' | 'inventory' | 'workflows' | 'labels' | 'analytics' | 'sync' | 'settings' | 'admin';
@@ -942,6 +943,20 @@ function InventoryPanel({ user }: { user: AuthUser }) {
   type StockWithLocation = Stock & { location?: InventoryLocation | null };
   type ItemWithStocks = InventoryItem & { stocks?: StockWithLocation[] };
 
+  const CATEGORY_LABELS: Record<string, string> = {
+    reagent: 'Reagents',
+    plasmid: 'Plasmids',
+    antibody: 'Antibodies',
+    primer: 'Primers',
+    cell_line: 'Cell lines',
+    sample: 'Samples',
+    consumable: 'Consumables'
+  };
+
+  const formatCategory = useCallback((c: string) => {
+    return CATEGORY_LABELS[c] || c;
+  }, []);
+
   const [items, setItems] = useState<ItemWithStocks[]>([]);
   const [locations, setLocations] = useState<InventoryLocation[]>([]);
   const [loading, setLoading] = useState(false);
@@ -966,6 +981,10 @@ function InventoryPanel({ user }: { user: AuthUser }) {
   const [accessMappingJson, setAccessMappingJson] = useState('');
 
   const headers = useMemo(() => ({ 'x-user-id': user.id, 'Content-Type': 'application/json' }), [user.id]);
+
+  const [detailsItem, setDetailsItem] = useState<ItemWithStocks | null>(null);
+  const [detailsProperties, setDetailsProperties] = useState<Record<string, unknown>>({});
+  const [detailsSaving, setDetailsSaving] = useState(false);
 
   const fetchInventory = useCallback(async () => {
     setLoading(true);
@@ -1019,6 +1038,44 @@ function InventoryPanel({ user }: { user: AuthUser }) {
       reader.readAsDataURL(file);
     });
   };
+
+  const uploadInventoryAttachment = useCallback(async (itemId: string, file: File): Promise<string> => {
+    const base64 = await readFileAsBase64(file);
+    const res = await fetch(`${API_BASE}/inventory/${itemId}/attachments`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        filename: file.name,
+        mime: file.type || undefined,
+        data: base64
+      })
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(payload?.error || 'Attachment upload failed');
+    return String(payload?.url || '');
+  }, [headers]);
+
+  const saveDetails = useCallback(async () => {
+    if (!detailsItem) return;
+    setDetailsSaving(true);
+    setMessage(null);
+    try {
+      const res = await fetch(`${API_BASE}/inventory/${detailsItem.id}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ properties: detailsProperties })
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || 'Failed to update item');
+      setDetailsItem(null);
+      setDetailsProperties({});
+      await fetchInventory();
+    } catch (e: any) {
+      setMessage(e?.message || 'Failed to update item');
+    } finally {
+      setDetailsSaving(false);
+    }
+  }, [detailsItem, detailsProperties, fetchInventory, headers]);
 
   const handleCreateItem = async () => {
     setMessage(null);
@@ -1187,7 +1244,7 @@ function InventoryPanel({ user }: { user: AuthUser }) {
           <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ ...styles.formSelect, width: 200 }}>
             <option value="">All categories</option>
             {INVENTORY_CATEGORIES.map(c => (
-              <option key={c} value={c}>{c}</option>
+              <option key={c} value={c}>{formatCategory(c)}</option>
             ))}
           </select>
           <button style={styles.secondaryButton} onClick={fetchInventory} disabled={loading}>{loading ? 'Loading…' : 'Refresh'}</button>
@@ -1274,6 +1331,39 @@ function InventoryPanel({ user }: { user: AuthUser }) {
         </div>
       )}
 
+      {detailsItem && (
+        <div style={styles.detailCard}>
+          <h3 style={styles.sectionTitle}>Item Details</h3>
+          <p style={{ marginTop: 0, opacity: 0.8 }}>
+            {detailsItem.name} • {formatCategory(detailsItem.category)}
+          </p>
+
+          <SchemaForm
+            schema={getInventoryCategorySchema(detailsItem.category)}
+            value={detailsProperties}
+            onChange={setDetailsProperties}
+            onAttachmentUpload={async (file) => uploadInventoryAttachment(detailsItem.id, file)}
+            compact
+          />
+
+          <div style={styles.formActions}>
+            <button
+              style={styles.secondaryButton}
+              onClick={() => {
+                setDetailsItem(null);
+                setDetailsProperties({});
+              }}
+              disabled={detailsSaving}
+            >
+              Cancel
+            </button>
+            <button style={styles.primaryButton} onClick={saveDetails} disabled={detailsSaving}>
+              {detailsSaving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div style={styles.section}>
         <h3 style={styles.sectionTitle}>Items</h3>
         {items.length === 0 && !loading && (
@@ -1284,13 +1374,22 @@ function InventoryPanel({ user }: { user: AuthUser }) {
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               <span style={styles.listItemTitle}>{item.name}</span>
               <span style={styles.listItemMeta}>
-                {item.category}{item.catalogNumber ? ` • ${item.catalogNumber}` : ''}{item.manufacturer ? ` • ${item.manufacturer}` : ''}
+                {formatCategory(item.category)}{item.catalogNumber ? ` • ${item.catalogNumber}` : ''}{item.manufacturer ? ` • ${item.manufacturer}` : ''}
               </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <span style={{ fontWeight: 600 }}>
                 {totalQuantity(item)}{item.unit ? ` ${item.unit}` : ''}
               </span>
+              <button
+                style={styles.secondaryButton}
+                onClick={() => {
+                  setDetailsItem(item);
+                  setDetailsProperties((item.properties as any) || {});
+                }}
+              >
+                Edit Details
+              </button>
               <button style={styles.secondaryButton} onClick={() => setStockItemId(item.id)}>Add Stock</button>
             </div>
           </div>
