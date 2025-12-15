@@ -3,6 +3,7 @@ import { Attachment } from '@eln/shared';
 
 interface AttachmentListProps {
   experimentId: string;
+  userId?: string;
   attachments?: Attachment[];
   onRefresh?: () => void;
   onDelete?: (attachment: Attachment) => void;
@@ -17,6 +18,7 @@ interface AttachmentWithPreview extends Attachment {
 
 export function AttachmentList({
   experimentId,
+  userId,
   attachments: propAttachments,
   onRefresh,
   onDelete,
@@ -34,7 +36,9 @@ export function AttachmentList({
       setLoading(true);
       setError(null);
       
-      const response = await fetch(`${apiBaseUrl}/experiments/${experimentId}/attachments`);
+      const response = await fetch(`${apiBaseUrl}/experiments/${experimentId}/attachments`, {
+        headers: userId ? { 'x-user-id': userId } : undefined
+      });
       
       if (!response.ok) {
         throw new Error('Failed to fetch attachments');

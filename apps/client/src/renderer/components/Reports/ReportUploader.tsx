@@ -3,6 +3,7 @@ import { Report, REPORT_TYPES, ReportType, REPORT_ALLOWED_EXTENSIONS } from '@el
 
 interface ReportUploaderProps {
   experimentId: string;
+  userId: string;
   onReportAdded?: (report: Report) => void;
   onError?: (error: string) => void;
   disabled?: boolean;
@@ -21,6 +22,7 @@ const MAX_FILE_SIZE = 100 * 1024 * 1024;
 
 export function ReportUploader({
   experimentId,
+  userId,
   onReportAdded,
   onError,
   disabled = false,
@@ -83,6 +85,7 @@ export function ReportUploader({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-user-id': userId,
         },
         body: JSON.stringify({
           filename: file.name,

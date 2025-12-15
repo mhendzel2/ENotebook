@@ -3,6 +3,7 @@ import { Report, ReportType } from '@eln/shared';
 
 interface ReportListProps {
   experimentId: string;
+  userId?: string;
   reports?: Report[];
   onRefresh?: () => void;
   onDelete?: (report: Report) => void;
@@ -23,6 +24,7 @@ const REPORT_TYPE_CONFIG: Record<ReportType, { label: string; color: string; ico
 
 export function ReportList({
   experimentId,
+  userId,
   reports: propReports,
   onRefresh,
   onDelete,
@@ -41,7 +43,9 @@ export function ReportList({
       setLoading(true);
       setError(null);
       
-      const response = await fetch(`${apiBaseUrl}/experiments/${experimentId}/reports`);
+      const response = await fetch(`${apiBaseUrl}/experiments/${experimentId}/reports`, {
+        headers: userId ? { 'x-user-id': userId } : undefined
+      });
       
       if (!response.ok) {
         throw new Error('Failed to fetch reports');

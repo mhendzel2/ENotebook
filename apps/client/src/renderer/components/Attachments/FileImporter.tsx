@@ -3,6 +3,7 @@ import { Attachment } from '@eln/shared';
 
 interface FileImporterProps {
   experimentId: string;
+  userId: string;
   onAttachmentAdded?: (attachment: Attachment) => void;
   onError?: (error: string) => void;
   disabled?: boolean;
@@ -53,6 +54,7 @@ const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 export function FileImporter({
   experimentId,
+  userId,
   onAttachmentAdded,
   onError,
   disabled = false,
@@ -119,7 +121,7 @@ export function FileImporter({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // TODO: Add auth header when authentication is implemented
+          'x-user-id': userId,
         },
         body: JSON.stringify({
           filename: file.name,

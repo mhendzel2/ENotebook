@@ -881,6 +881,7 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
               </p>
               <FileImporter
                 experimentId={experiment.id}
+                userId={user.id}
                 onAttachmentAdded={handleAttachmentAdded}
                 onError={(err) => setError(err)}
                 apiBaseUrl={API_BASE}
@@ -893,6 +894,7 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
               <AttachmentList
                 key={`attachments-${refreshKey}`}
                 experimentId={experiment.id}
+                userId={user.id}
                 apiBaseUrl={API_BASE}
               />
             </div>
@@ -911,6 +913,7 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
               </p>
               <ReportUploader
                 experimentId={experiment.id}
+                userId={user.id}
                 onReportAdded={handleReportAdded}
                 onError={(err) => setError(err)}
                 apiBaseUrl={API_BASE}
@@ -923,6 +926,7 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
               <ReportList
                 key={`reports-${refreshKey}`}
                 experimentId={experiment.id}
+                userId={user.id}
                 apiBaseUrl={API_BASE}
               />
             </div>
