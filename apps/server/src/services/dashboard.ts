@@ -328,7 +328,7 @@ export class DashboardService {
       data: rows.map(row => Number(row[col]) || 0),
       backgroundColor: config.type === 'pie' || config.type === 'doughnut'
         ? colors
-        : colors[index % colors.length],
+        : [colors[index % colors.length]],
     }));
 
     return { labels, datasets };

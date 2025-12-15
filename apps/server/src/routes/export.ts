@@ -98,12 +98,12 @@ export function createExportRoutes(prisma: PrismaClient): Router {
         }
       });
       
-      // Parse JSON fields
+      // Parse JSON fields (Prisma returns JSON fields as objects, not strings)
       const parsed = experiments.map(e => ({
         ...e,
-        params: e.params ? JSON.parse(e.params) : undefined,
-        observations: e.observations ? JSON.parse(e.observations) : undefined,
-        tags: e.tags ? JSON.parse(e.tags) : []
+        params: e.params ?? undefined,
+        observations: e.observations ?? undefined,
+        tags: e.tags ?? []
       }));
       
       // Return in requested format
@@ -158,9 +158,9 @@ export function createExportRoutes(prisma: PrismaClient): Router {
       
       const parsed = methods.map(m => ({
         ...m,
-        steps: JSON.parse(m.steps),
-        reagents: m.reagents ? JSON.parse(m.reagents) : undefined,
-        attachments: m.attachments ? JSON.parse(m.attachments) : undefined
+        steps: m.steps,
+        reagents: m.reagents ?? undefined,
+        attachments: m.attachments ?? undefined
       }));
       
       switch (format) {
@@ -287,7 +287,7 @@ export function createExportRoutes(prisma: PrismaClient): Router {
         prisma.user.findMany({ select: { id: true, name: true, email: true, role: true, createdAt: true } })
       ]);
       
-      // Parse JSON fields
+      // Parse JSON fields (Prisma JSON fields are already objects)
       const exportData = {
         exportedAt: new Date().toISOString(),
         exportedBy: user.id,
@@ -295,19 +295,19 @@ export function createExportRoutes(prisma: PrismaClient): Router {
         data: {
           experiments: experiments.map(e => ({
             ...e,
-            params: e.params ? JSON.parse(e.params) : undefined,
-            observations: e.observations ? JSON.parse(e.observations) : undefined,
-            tags: e.tags ? JSON.parse(e.tags) : []
+            params: e.params ?? undefined,
+            observations: e.observations ?? undefined,
+            tags: e.tags ?? []
           })),
           methods: methods.map(m => ({
             ...m,
-            steps: JSON.parse(m.steps),
-            reagents: m.reagents ? JSON.parse(m.reagents) : undefined,
-            attachments: m.attachments ? JSON.parse(m.attachments) : undefined
+            steps: m.steps,
+            reagents: m.reagents ?? undefined,
+            attachments: m.attachments ?? undefined
           })),
           inventory: inventory.map(item => ({
             ...item,
-            properties: item.properties ? JSON.parse(item.properties) : undefined
+            properties: item.properties ?? undefined
           })),
           locations,
           users

@@ -234,7 +234,7 @@ export class AuditTrailService {
       } catch {
         return null;
       }
-    }).filter((e): e is AuditEntry => e !== null);
+    }).filter((e): e is NonNullable<typeof e> => e !== null) as AuditEntry[];
 
     if (params.userId) {
       parsedEntries = parsedEntries.filter(e => e.userId === params.userId);
@@ -243,7 +243,7 @@ export class AuditTrailService {
     if (params.search) {
       const searchLower = params.search.toLowerCase();
       parsedEntries = parsedEntries.filter(e =>
-        e.userName.toLowerCase().includes(searchLower) ||
+        e.userName?.toLowerCase().includes(searchLower) ||
         e.entityType.toLowerCase().includes(searchLower) ||
         e.entityId.toLowerCase().includes(searchLower) ||
         e.entityName?.toLowerCase().includes(searchLower) ||
