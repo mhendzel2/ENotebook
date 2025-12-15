@@ -7,7 +7,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Modality } from '@prisma/client';
 import { MODALITIES, EXPERIMENT_STATUSES, SIGNATURE_TYPES } from '@eln/shared/dist/types.js';
 import type { User } from '@eln/shared/dist/types.js';
 import { 
@@ -271,11 +271,12 @@ export function createExperimentsRoutes(
       throw new ValidationError('Invalid experiment data', parse.error.flatten());
     }
 
-    const { tags, ...rest } = parse.data;
+    const { tags, modality, ...rest } = parse.data;
     const experiment = await prisma.experiment.create({
       data: {
         userId: user.id,
         version: 1,
+        modality: modality as Modality,
         ...rest,
         tags: tags || []
       }
