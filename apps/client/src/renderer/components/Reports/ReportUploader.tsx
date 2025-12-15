@@ -81,7 +81,7 @@ export function ReportUploader({
       });
 
       // Upload to server
-      const response = await fetch(`${apiBaseUrl}/api/experiments/${experimentId}/reports`, {
+      const response = await fetch(`${apiBaseUrl}/experiments/${experimentId}/reports`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

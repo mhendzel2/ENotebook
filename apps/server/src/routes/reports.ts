@@ -160,9 +160,9 @@ export function createReportRoutes(prisma: PrismaClient): Router {
 
   /**
    * Upload a report to an experiment
-   * POST /api/experiments/:experimentId/reports
+   * POST /experiments/:experimentId/reports
    */
-  router.post('/api/experiments/:experimentId/reports', async (req: Request, res: Response) => {
+  router.post('/experiments/:experimentId/reports', async (req: Request, res: Response) => {
     const user = (req as any).user;
     const { experimentId } = req.params;
     const { filename, mime, data, reportType, notes, metadata } = req.body;
@@ -310,9 +310,9 @@ export function createReportRoutes(prisma: PrismaClient): Router {
 
   /**
    * List all reports for an experiment
-   * GET /api/experiments/:experimentId/reports
+   * GET /experiments/:experimentId/reports
    */
-  router.get('/api/experiments/:experimentId/reports', async (req: Request, res: Response) => {
+  router.get('/experiments/:experimentId/reports', async (req: Request, res: Response) => {
     const user = (req as any).user;
     const { experimentId } = req.params;
 
@@ -341,9 +341,9 @@ export function createReportRoutes(prisma: PrismaClient): Router {
 
   /**
    * Get a specific report metadata
-   * GET /api/reports/:id
+   * GET /reports/:id
    */
-  router.get('/api/reports/:id', async (req: Request, res: Response) => {
+  router.get('/reports/:id', async (req: Request, res: Response) => {
     const user = (req as any).user;
     const { id } = req.params;
 
@@ -375,9 +375,9 @@ export function createReportRoutes(prisma: PrismaClient): Router {
 
   /**
    * Download a report file
-   * GET /api/reports/:id/download
+   * GET /reports/:id/download
    */
-  router.get('/api/reports/:id/download', async (req: Request, res: Response) => {
+  router.get('/reports/:id/download', async (req: Request, res: Response) => {
     const user = (req as any).user;
     const { id } = req.params;
 
@@ -429,9 +429,9 @@ export function createReportRoutes(prisma: PrismaClient): Router {
 
   /**
    * View a report (inline display, especially for HTML reports)
-   * GET /api/reports/:id/view
+   * GET /reports/:id/view
    */
-  router.get('/api/reports/:id/view', async (req: Request, res: Response) => {
+  router.get('/reports/:id/view', async (req: Request, res: Response) => {
     const user = (req as any).user;
     const { id } = req.params;
 
@@ -480,9 +480,9 @@ export function createReportRoutes(prisma: PrismaClient): Router {
 
   /**
    * Get report content as base64 (for embedding in UI)
-   * GET /api/reports/:id/base64
+   * GET /reports/:id/base64
    */
-  router.get('/api/reports/:id/base64', async (req: Request, res: Response) => {
+  router.get('/reports/:id/base64', async (req: Request, res: Response) => {
     const user = (req as any).user;
     const { id } = req.params;
 
@@ -529,9 +529,9 @@ export function createReportRoutes(prisma: PrismaClient): Router {
 
   /**
    * Update report metadata (notes, type)
-   * PUT /api/reports/:id
+   * PUT /reports/:id
    */
-  router.put('/api/reports/:id', async (req: Request, res: Response) => {
+  router.put('/reports/:id', async (req: Request, res: Response) => {
     const user = (req as any).user;
     const { id } = req.params;
     const { notes, reportType, metadata } = req.body;
@@ -595,10 +595,10 @@ export function createReportRoutes(prisma: PrismaClient): Router {
 
   /**
    * Delete a report
-   * DELETE /api/reports/:id
+   * DELETE /reports/:id
    * Note: For signed experiments, deletions are not allowed (21 CFR Part 11 compliance)
    */
-  router.delete('/api/reports/:id', async (req: Request, res: Response) => {
+  router.delete('/reports/:id', async (req: Request, res: Response) => {
     const user = (req as any).user;
     const { id } = req.params;
 
@@ -655,9 +655,9 @@ export function createReportRoutes(prisma: PrismaClient): Router {
 
   /**
    * Get reports by type across all experiments
-   * GET /api/reports?type=FRAP
+   * GET /reports?type=FRAP
    */
-  router.get('/api/reports', async (req: Request, res: Response) => {
+  router.get('/reports', async (req: Request, res: Response) => {
     const user = (req as any).user;
     const { type, limit = '50', offset = '0' } = req.query;
 
