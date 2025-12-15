@@ -22,7 +22,7 @@ import { DashboardService, createDashboardRoutes } from './services/dashboard.js
 import { SamplePoolService, createPoolRoutes } from './services/pools.js';
 // Developer & Integration tools
 import { createGraphQLRoutes } from './services/graphql.js';
-import { createMobileRoutes } from './services/mobile.js';
+import { createMobileRoutes, MobileService } from './services/mobile.js';
 import { createMLAnalyticsRoutes } from './services/mlAnalytics.js';
 import { createExperimentsRoutes } from './routes/experiments.js';
 import { createMethodsRoutes } from './routes/methods.js';
@@ -75,7 +75,7 @@ app.use(async (req, res, next) => {
       const keyHash = crypto.createHash('sha256').update(apiKey).digest('hex');
       
       const apiKeyRecord = await prisma.aPIKey.findFirst({
-        where: { keyHash, active: true },
+        where: { keyHash, revokedAt: null },
         include: { user: true }
       });
       
@@ -161,7 +161,8 @@ app.use(createPoolRoutes(prisma, poolService));
 app.use('/api/graphql', createGraphQLRoutes(prisma));
 
 // ==================== MOBILE COMPANION API ====================
-app.use('/api/mobile', createMobileRoutes(prisma));
+const mobileService = new MobileService(prisma);
+app.use('/api/mobile', createMobileRoutes(prisma, mobileService));
 
 // ==================== ML ANALYTICS ====================
 app.use('/api/ml', createMLAnalyticsRoutes());

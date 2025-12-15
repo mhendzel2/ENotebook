@@ -33,7 +33,7 @@ export const methodUpdateSchema = methodSchema.partial().refine(
 
 // ==================== HELPERS ====================
 
-function canEditMethod(user: User, method: { createdBy: string }): boolean {
+function canEditMethod(user: User, method: { createdBy: string | null }): boolean {
   return user.role === 'manager' || user.role === 'admin' || method.createdBy === user.id;
 }
 
@@ -140,9 +140,9 @@ export function createMethodsRoutes(
       data: {
         title: original.title,
         category: original.category,
-        steps: original.steps,
-        reagents: original.reagents,
-        attachments: original.attachments,
+        steps: original.steps as any,
+        reagents: original.reagents as any,
+        attachments: original.attachments as any,
         createdBy: user.id,
         version: (latestVersion?.version || 0) + 1,
         isPublic: original.isPublic,

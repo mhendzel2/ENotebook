@@ -20,17 +20,21 @@ import {
 
 // ==================== SCHEMAS ====================
 
+const modalityEnum = z.enum(MODALITIES as unknown as [string, ...string[]]);
+const experimentStatusEnum = z.enum(EXPERIMENT_STATUSES as unknown as [string, ...string[]]);
+const signatureTypeEnum = z.enum(SIGNATURE_TYPES as unknown as [string, ...string[]]);
+
 export const experimentSchema = z.object({
   title: z.string().min(1),
   project: z.string().optional(),
-  modality: z.enum(MODALITIES),
+  modality: modalityEnum,
   protocolRef: z.string().optional(),
   params: z.any().optional(),
   observations: z.any().optional(),
   resultsSummary: z.string().optional(),
   dataLink: z.string().optional(),
   tags: z.array(z.string()).optional(),
-  status: z.enum(EXPERIMENT_STATUSES).default('draft')
+  status: experimentStatusEnum.default('draft')
 });
 
 export const experimentUpdateSchema = experimentSchema.partial().refine(
@@ -478,7 +482,7 @@ export function createExperimentsRoutes(
   // ==================== SIGNATURES ====================
 
   const signatureSchema = z.object({
-    signatureType: z.enum(SIGNATURE_TYPES),
+    signatureType: signatureTypeEnum,
     meaning: z.string().optional()
   });
 
