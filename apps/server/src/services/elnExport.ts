@@ -743,12 +743,39 @@ export function createElnExportRoutes(prisma: PrismaClient): Router {
   // Import .eln archive
   router.post('/import/eln', async (req: Request, res: Response) => {
     const user = (req as any).user;
+    const { data, filename } = req.body;
 
-    // In production, use multer or similar for file upload
-    res.status(501).json({ 
-      error: 'Import not yet implemented',
-      message: 'File upload handler required'
-    });
+    if (!data) {
+      return res.status(400).json({ error: 'No file data provided' });
+    }
+
+    try {
+      // Decode base64 data to buffer
+      // Handle data URI prefix if present (e.g., "data:application/zip;base64,...")
+      const base64Data = data.includes(',') ? data.split(',')[1] : data;
+      const buffer = Buffer.from(base64Data, 'base64');
+
+      const result = await exportService.importEln(user.id, buffer);
+
+      if (result.errors.length > 0 && result.imported === 0) {
+        return res.status(400).json({ 
+          error: 'Import failed', 
+          details: result.errors 
+        });
+      }
+
+      res.json({
+        success: true,
+        message: `Successfully imported ${result.imported} experiments`,
+        warnings: result.errors.length > 0 ? result.errors : undefined
+      });
+    } catch (error: any) {
+      console.error('ELN Import error:', error);
+      res.status(500).json({ 
+        error: 'Internal server error during import',
+        message: error.message
+      });
+    }
   });
 
   return router;

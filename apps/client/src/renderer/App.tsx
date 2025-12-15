@@ -4,6 +4,7 @@ import { v4 as uuid } from 'uuid';
 import { LoginPage, CreateAccountPage, AuthUser } from './components/Auth';
 import { FileImporter, AttachmentList } from './components/Attachments';
 import { ReportUploader, ReportList } from './components/Reports';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 
 type NavTab = 'dashboard' | 'methods' | 'experiments' | 'projects' | 'inventory' | 'workflows' | 'labels' | 'analytics' | 'sync' | 'settings' | 'admin';
 type AuthState = 'login' | 'register' | 'authenticated';
@@ -1268,56 +1269,320 @@ function InventoryPanel({ user }: { user: AuthUser }) {
   );
 }
 
-// Workflows Panel (Placeholder)
+// Workflows Panel
 function WorkflowsPanel({ user }: { user: AuthUser }) {
+  const [workflows, setWorkflows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchWorkflows();
+  }, []);
+
+  const fetchWorkflows = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/workflows`, {
+        headers: { 'x-user-id': user.id }
+      });
+      if (res.ok) setWorkflows(await res.json());
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTrigger = async (id: string) => {
+    setProcessing(id);
+    try {
+      const res = await fetch(`${API_BASE}/api/workflows/${id}/execute`, {
+        method: 'POST',
+        headers: { 'x-user-id': user.id, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: { manual: true, triggeredBy: user.id } })
+      });
+      if (res.ok) {
+        alert('Workflow triggered successfully');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to trigger workflow');
+    } finally {
+      setProcessing(null);
+    }
+  };
+
   return (
     <div style={styles.panel}>
       <div style={styles.header}>
         <div>
           <h2 style={styles.pageTitle}>Automation Workflows</h2>
-          <p style={styles.pageSubtitle}>Create event-driven automation sequences</p>
+          <p style={styles.pageSubtitle}>Manage event-driven automation sequences</p>
         </div>
-        <button style={styles.primaryButton}>+ New Workflow</button>
+        <button style={styles.primaryButton} onClick={() => alert('Workflow Builder coming in v2')}>+ New Workflow</button>
       </div>
-      <div style={styles.emptyState}>
-        <p>Workflow automation engine coming soon. Define triggers and actions.</p>
-      </div>
+
+      {loading ? (
+        <div style={styles.emptyState}><p>Loading workflows...</p></div>
+      ) : (
+        <div style={{ display: 'grid', gap: '16px' }}>
+          {workflows.length === 0 && (
+            <div style={styles.emptyState}>
+              <p>No workflows defined. Create one to automate your lab tasks.</p>
+            </div>
+          )}
+          {workflows.map(wf => (
+            <div key={wf.id} style={{
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '16px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>{wf.name}</h3>
+                  <span style={{ 
+                    fontSize: '11px', 
+                    padding: '2px 8px', 
+                    borderRadius: '12px',
+                    background: wf.enabled ? '#dcfce7' : '#f1f5f9',
+                    color: wf.enabled ? '#166534' : '#64748b'
+                  }}>
+                    {wf.enabled ? 'Active' : 'Disabled'}
+                  </span>
+                </div>
+                <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
+                  Trigger: <strong>{wf.trigger?.type || 'manual'}</strong> • Steps: {wf.steps?.length || 0}
+                </p>
+                {wf.description && (
+                  <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#475569' }}>{wf.description}</p>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button 
+                  onClick={() => handleTrigger(wf.id)}
+                  disabled={!!processing}
+                  style={styles.secondaryButton}
+                >
+                  {processing === wf.id ? 'Running...' : '▶ Run Now'}
+                </button>
+                <button style={styles.iconButton}>⚙️</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-// Labels Panel (Placeholder)
+// Labels Panel
 function LabelsPanel({ user }: { user: AuthUser }) {
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [inputText, setInputText] = useState('');
+  const [generatedQR, setGeneratedQR] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/labels/templates`, { headers: { 'x-user-id': user.id } })
+      .then(res => res.json())
+      .then(data => setTemplates(Array.isArray(data) ? data : []))
+      .catch(console.error);
+  }, [user.id]);
+
+  const handleGenerate = async () => {
+    if (!inputText) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/labels/qr`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': user.id },
+        body: JSON.stringify({ data: inputText, width: 300 })
+      });
+      if (res.ok) {
+        const result = await res.json();
+        setGeneratedQR(result.imageDataUrl);
+      }
+    } catch (error) {
+      console.error('Failed to generate QR', error);
+    }
+  };
+
   return (
     <div style={styles.panel}>
       <div style={styles.header}>
-        <div>
-          <h2 style={styles.pageTitle}>Label Generator</h2>
-          <p style={styles.pageSubtitle}>Create and print QR codes and barcodes</p>
-        </div>
-        <button style={styles.primaryButton}>+ New Label</button>
+        <h2 style={styles.pageTitle}>Label Generator</h2>
       </div>
-      <div style={styles.emptyState}>
-        <p>Label generation coming soon. Create barcodes, QR codes, and print labels.</p>
+
+      <div style={{ display: 'flex', gap: '24px' }}>
+        <div style={{ flex: 1, maxWidth: '400px' }}>
+          <div style={styles.section}>
+            <h3 style={styles.sectionTitle}>Quick Generate</h3>
+            <div style={styles.formField}>
+              <label style={styles.formLabel}>Text / ID to Encode</label>
+              <input 
+                type="text" 
+                value={inputText}
+                onChange={e => setInputText(e.target.value)}
+                placeholder="e.g. EXP-2025-001"
+                style={styles.formInput}
+              />
+            </div>
+            <div style={{ marginTop: '16px' }}>
+              <button 
+                onClick={handleGenerate} 
+                style={styles.primaryButton}
+                disabled={!inputText}
+              >
+                Generate QR Code
+              </button>
+            </div>
+          </div>
+          
+          <div style={{ ...styles.section, marginTop: '24px' }}>
+            <h3 style={styles.sectionTitle}>Templates</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {templates.length === 0 ? (
+                 <p style={{ color: '#64748b', fontSize: '13px' }}>No templates found.</p>
+              ) : (
+                templates.map(t => (
+                  <div key={t.id} style={{ 
+                    padding: '8px', 
+                    border: '1px solid #e2e8f0', 
+                    borderRadius: '6px',
+                    fontSize: '13px',
+                    cursor: 'pointer'
+                  }}>
+                    <strong>{t.name}</strong> ({t.format})
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}>
+          {generatedQR ? (
+            <div style={{ 
+              background: 'white', 
+              padding: '24px', 
+              borderRadius: '12px', 
+              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+              textAlign: 'center'
+            }}>
+              <img src={generatedQR} alt="Generated QR" style={{ maxWidth: '100%' }} />
+              <p style={{ marginTop: '16px', fontWeight: 600, color: '#334155' }}>{inputText}</p>
+              <button 
+                style={{ ...styles.secondaryButton, marginTop: '16px' }}
+                onClick={() => {
+                  const link = document.createElement('a');
+                  link.download = `qr-${inputText}.png`;
+                  link.href = generatedQR;
+                  link.click();
+                }}
+              >
+                Download PNG
+              </button>
+            </div>
+          ) : (
+            <div style={styles.emptyState}>
+              <p>Enter text to generate a preview</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-// Analytics Panel (Placeholder)
+// Analytics Panel
 function AnalyticsPanel({ user }: { user: AuthUser }) {
+  const [metrics, setMetrics] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchMetrics();
+  }, []);
+
+  const fetchMetrics = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/analytics/metrics`, {
+        headers: { 'x-user-id': user.id }
+      });
+      if (res.ok) setMetrics(await res.json());
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const chartData = metrics ? [
+    { name: 'Experiments', count: metrics.experiments || 0 },
+    { name: 'Methods', count: metrics.methods || 0 },
+    { name: 'Inventory', count: metrics.inventoryItems || 0 },
+    { name: 'Stocks', count: metrics.stocks || 0 }
+  ] : [];
+
   return (
     <div style={styles.panel}>
       <div style={styles.header}>
-        <div>
-          <h2 style={styles.pageTitle}>Analytics Dashboard</h2>
-          <p style={styles.pageSubtitle}>Visualize data and run custom queries</p>
+        <h2 style={styles.pageTitle}>Lab Analytics</h2>
+        <button style={styles.secondaryButton} onClick={fetchMetrics}>Refresh</button>
+      </div>
+
+      {loading ? (
+        <div style={styles.emptyState}><p>Loading analytics...</p></div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          
+          {/* Summary Cards */}
+          <div style={styles.statsGrid}>
+            <StatCard title="Total Experiments" value={metrics?.experiments || 0} icon="🧪" color="#3b82f6" />
+            <StatCard title="Inventory Items" value={metrics?.inventoryItems || 0} icon="📦" color="#10b981" />
+            <StatCard title="Low Stock Alerts" value={metrics?.lowStockAlerts || 0} icon="⚠️" color="#ef4444" />
+            <StatCard title="Signatures" value={metrics?.signatures || 0} icon="✍️" color="#8b5cf6" />
+          </div>
+
+          {/* Charts Row */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+            <div style={styles.section}>
+              <h3 style={styles.sectionTitle}>Data Overview</h3>
+              <div style={{ height: '300px', width: '100%' }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <RechartsTooltip 
+                      contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
+                    />
+                    <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div style={styles.section}>
+              <h3 style={styles.sectionTitle}>System Status</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={styles.listItem}>
+                  <span>Draft Experiments</span>
+                  <strong>{metrics?.draftExperiments || 0}</strong>
+                </div>
+                <div style={styles.listItem}>
+                  <span>Active Pools</span>
+                  <strong>0</strong>
+                </div>
+                <div style={styles.listItem}>
+                  <span>Users</span>
+                  <strong>{metrics?.users || 0}</strong>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-        <button style={styles.primaryButton}>+ New Chart</button>
-      </div>
-      <div style={styles.emptyState}>
-        <p>Analytics dashboard coming soon. Create charts and run SQL queries.</p>
-      </div>
+      )}
     </div>
   );
 }
