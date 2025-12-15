@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { MODALITIES, INVENTORY_CATEGORIES, Modality, Method, Experiment, InventoryItem, Stock, Location as InventoryLocation } from '@eln/shared';
+import { MODALITIES, INVENTORY_CATEGORIES, Modality, Method, Experiment, InventoryItem, Stock, Location as InventoryLocation, Attachment, Report } from '@eln/shared';
 import { v4 as uuid } from 'uuid';
 import { LoginPage, CreateAccountPage, AuthUser } from './components/Auth';
+import { FileImporter, AttachmentList } from './components/Attachments';
+import { ReportUploader, ReportList } from './components/Reports';
 
 type NavTab = 'dashboard' | 'methods' | 'experiments' | 'projects' | 'inventory' | 'workflows' | 'labels' | 'analytics' | 'sync' | 'settings' | 'admin';
 type AuthState = 'login' | 'register' | 'authenticated';
@@ -654,6 +656,10 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
   const [status, setStatus] = useState<string>(experiment.status || 'draft');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'details' | 'attachments' | 'reports'>('details');
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -692,99 +698,208 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
     }
   };
 
+  const handleAttachmentAdded = (attachment: Attachment) => {
+    setAttachments(prev => [...prev, attachment]);
+    setRefreshKey(k => k + 1);
+  };
+
+  const handleReportAdded = (report: Report) => {
+    setReports(prev => [...prev, report]);
+    setRefreshKey(k => k + 1);
+  };
+
+  const tabButtonStyle = (isActive: boolean) => ({
+    padding: '10px 20px',
+    border: 'none',
+    borderBottom: isActive ? '3px solid #3b82f6' : '3px solid transparent',
+    background: isActive ? '#f0f9ff' : 'transparent',
+    color: isActive ? '#1e40af' : '#64748b',
+    fontWeight: isActive ? 600 : 400,
+    cursor: 'pointer',
+    fontSize: '14px',
+    transition: 'all 0.2s ease',
+  });
+
   return (
     <div style={styles.panel}>
       <div style={styles.header}>
         <button onClick={onClose} style={styles.secondaryButton}>← Back</button>
-        <h2 style={styles.pageTitle}>Edit Experiment</h2>
+        <h2 style={styles.pageTitle}>Edit Experiment: {experiment.title}</h2>
       </div>
+      
+      {/* Tab Navigation */}
+      <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '16px' }}>
+        <button 
+          style={tabButtonStyle(activeTab === 'details')} 
+          onClick={() => setActiveTab('details')}
+        >
+          📝 Details
+        </button>
+        <button 
+          style={tabButtonStyle(activeTab === 'attachments')} 
+          onClick={() => setActiveTab('attachments')}
+        >
+          📎 Attachments
+        </button>
+        <button 
+          style={tabButtonStyle(activeTab === 'reports')} 
+          onClick={() => setActiveTab('reports')}
+        >
+          📊 Reports & Results
+        </button>
+      </div>
+
       <div style={styles.detailCard}>
         {error && (
           <div style={{ padding: '12px', marginBottom: '16px', background: '#fee2e2', color: '#dc2626', borderRadius: '6px' }}>
             {error}
           </div>
         )}
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={styles.formRow}>
+
+        {/* Details Tab */}
+        {activeTab === 'details' && (
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={styles.formRow}>
+              <div style={styles.formField}>
+                <label style={styles.formLabel}>Title *</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={e => setTitle(e.target.value)}
+                  style={styles.formInput}
+                  required
+                  placeholder="Experiment title"
+                />
+              </div>
+              <div style={styles.formField}>
+                <label style={styles.formLabel}>Project</label>
+                <input
+                  type="text"
+                  value={project}
+                  onChange={e => setProject(e.target.value)}
+                  style={styles.formInput}
+                  placeholder="Project name"
+                />
+              </div>
+            </div>
+            <div style={styles.formRow}>
+              <div style={styles.formField}>
+                <label style={styles.formLabel}>Modality *</label>
+                <select value={modality} onChange={e => setModality(e.target.value)} style={styles.formSelect} required>
+                  <option value="">Select modality</option>
+                  {MODALITIES.map(m => (
+                    <option key={m} value={m}>{formatModality(m)}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={styles.formField}>
+                <label style={styles.formLabel}>Protocol</label>
+                <select value={protocolRef} onChange={e => setProtocolRef(e.target.value)} style={styles.formSelect}>
+                  <option value="">Select protocol (optional)</option>
+                  {methods.map(m => (
+                    <option key={m.id} value={m.id}>{m.title}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div style={styles.formRow}>
+              <div style={styles.formField}>
+                <label style={styles.formLabel}>Status</label>
+                <select value={status} onChange={e => setStatus(e.target.value)} style={styles.formSelect}>
+                  <option value="draft">Draft</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="completed">Completed</option>
+                </select>
+              </div>
+            </div>
             <div style={styles.formField}>
-              <label style={styles.formLabel}>Title *</label>
-              <input
-                type="text"
-                value={title}
-                onChange={e => setTitle(e.target.value)}
-                style={styles.formInput}
-                required
-                placeholder="Experiment title"
+              <label style={styles.formLabel}>Observations</label>
+              <textarea
+                value={observations}
+                onChange={e => setObservations(e.target.value)}
+                style={styles.formTextarea}
+                rows={6}
+                placeholder="Record your observations..."
               />
             </div>
             <div style={styles.formField}>
-              <label style={styles.formLabel}>Project</label>
-              <input
-                type="text"
-                value={project}
-                onChange={e => setProject(e.target.value)}
-                style={styles.formInput}
-                placeholder="Project name"
+              <label style={styles.formLabel}>Results Summary</label>
+              <textarea
+                value={resultsSummary}
+                onChange={e => setResultsSummary(e.target.value)}
+                style={styles.formTextarea}
+                rows={4}
+                placeholder="Summarize your results..."
+              />
+            </div>
+            <div style={styles.formActions}>
+              <button type="button" onClick={onClose} style={styles.secondaryButton}>Cancel</button>
+              <button type="submit" style={styles.primaryButton} disabled={saving}>
+                {saving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Attachments Tab */}
+        {activeTab === 'attachments' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <div>
+              <h3 style={{ margin: '0 0 12px 0', color: '#1e293b', fontSize: '16px' }}>
+                Upload Attachments
+              </h3>
+              <p style={{ margin: '0 0 16px 0', color: '#64748b', fontSize: '14px' }}>
+                Add images, spreadsheets, documents, or other files to this experiment.
+              </p>
+              <FileImporter
+                experimentId={experiment.id}
+                onAttachmentAdded={handleAttachmentAdded}
+                onError={(err) => setError(err)}
+                apiBaseUrl={API_BASE}
+              />
+            </div>
+            <div>
+              <h3 style={{ margin: '0 0 12px 0', color: '#1e293b', fontSize: '16px' }}>
+                Existing Attachments
+              </h3>
+              <AttachmentList
+                key={`attachments-${refreshKey}`}
+                experimentId={experiment.id}
+                apiBaseUrl={API_BASE}
               />
             </div>
           </div>
-          <div style={styles.formRow}>
-            <div style={styles.formField}>
-              <label style={styles.formLabel}>Modality *</label>
-              <select value={modality} onChange={e => setModality(e.target.value)} style={styles.formSelect} required>
-                <option value="">Select modality</option>
-                {MODALITIES.map(m => (
-                  <option key={m} value={m}>{formatModality(m)}</option>
-                ))}
-              </select>
+        )}
+
+        {/* Reports Tab */}
+        {activeTab === 'reports' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <div>
+              <h3 style={{ margin: '0 0 12px 0', color: '#1e293b', fontSize: '16px' }}>
+                Upload Analysis Reports
+              </h3>
+              <p style={{ margin: '0 0 16px 0', color: '#64748b', fontSize: '14px' }}>
+                Add analytical program outputs like FRAP analysis, SPT tracking reports, flow cytometry data, and other results.
+              </p>
+              <ReportUploader
+                experimentId={experiment.id}
+                onReportAdded={handleReportAdded}
+                onError={(err) => setError(err)}
+                apiBaseUrl={API_BASE}
+              />
             </div>
-            <div style={styles.formField}>
-              <label style={styles.formLabel}>Protocol</label>
-              <select value={protocolRef} onChange={e => setProtocolRef(e.target.value)} style={styles.formSelect}>
-                <option value="">Select protocol (optional)</option>
-                {methods.map(m => (
-                  <option key={m.id} value={m.id}>{m.title}</option>
-                ))}
-              </select>
+            <div>
+              <h3 style={{ margin: '0 0 12px 0', color: '#1e293b', fontSize: '16px' }}>
+                Existing Reports
+              </h3>
+              <ReportList
+                key={`reports-${refreshKey}`}
+                experimentId={experiment.id}
+                apiBaseUrl={API_BASE}
+              />
             </div>
           </div>
-          <div style={styles.formRow}>
-            <div style={styles.formField}>
-              <label style={styles.formLabel}>Status</label>
-              <select value={status} onChange={e => setStatus(e.target.value)} style={styles.formSelect}>
-                <option value="draft">Draft</option>
-                <option value="in_progress">In Progress</option>
-                <option value="completed">Completed</option>
-              </select>
-            </div>
-          </div>
-          <div style={styles.formField}>
-            <label style={styles.formLabel}>Observations</label>
-            <textarea
-              value={observations}
-              onChange={e => setObservations(e.target.value)}
-              style={styles.formTextarea}
-              rows={6}
-              placeholder="Record your observations..."
-            />
-          </div>
-          <div style={styles.formField}>
-            <label style={styles.formLabel}>Results Summary</label>
-            <textarea
-              value={resultsSummary}
-              onChange={e => setResultsSummary(e.target.value)}
-              style={styles.formTextarea}
-              rows={4}
-              placeholder="Summarize your results..."
-            />
-          </div>
-          <div style={styles.formActions}>
-            <button type="button" onClick={onClose} style={styles.secondaryButton}>Cancel</button>
-            <button type="submit" style={styles.primaryButton} disabled={saving}>
-              {saving ? 'Saving...' : 'Save Changes'}
-            </button>
-          </div>
-        </form>
+        )}
       </div>
     </div>
   );
