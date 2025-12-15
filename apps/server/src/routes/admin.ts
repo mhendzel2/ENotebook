@@ -5,7 +5,7 @@
 
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { User } from '@eln/shared';
+import type { User } from '@eln/shared/dist/types.js';
 
 export function createAdminRoutes(prisma: PrismaClient): Router {
   const router = Router();
@@ -22,7 +22,7 @@ export function createAdminRoutes(prisma: PrismaClient): Router {
       const experiments = await prisma.experiment.findMany({
         include: {
           user: { select: { id: true, name: true, email: true, role: true } },
-          signatures: { select: { id: true, signatureType: true, createdAt: true } }
+          signatures: { select: { id: true, signatureType: true, timestamp: true } }
         },
         orderBy: { updatedAt: 'desc' }
       });

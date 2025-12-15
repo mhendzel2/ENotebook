@@ -7,23 +7,44 @@ import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 
-import { experimentSchema } from './experiments.js';
-import { methodSchema } from './methods.js';
-
 export function createSyncRoutes(prisma: PrismaClient): Router {
   const router = Router();
 
+  const syncMethodSchema = z.object({
+    id: z.string().uuid(),
+    title: z.string().min(1),
+    category: z.string().optional(),
+    steps: z.any(),
+    reagents: z.any().optional(),
+    attachments: z.any().optional(),
+    isPublic: z.boolean().default(true),
+    createdBy: z.string().optional(),
+    version: z.number().int().positive(),
+    updatedAt: z.string(),
+    parentMethodId: z.string().uuid().optional()
+  }).passthrough();
+
+  const syncExperimentSchema = z.object({
+    id: z.string().uuid(),
+    userId: z.string(),
+    title: z.string().min(1),
+    project: z.string().optional(),
+    modality: z.string(),
+    protocolRef: z.string().optional(),
+    params: z.any().optional(),
+    observations: z.any().optional(),
+    resultsSummary: z.string().optional(),
+    dataLink: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+    status: z.string().optional(),
+    version: z.number().int().positive(),
+    createdAt: z.string(),
+    updatedAt: z.string()
+  }).passthrough();
+
   const syncPayloadSchema = z.object({
-    methods: z.array(methodSchema.extend({ id: z.string().uuid(), version: z.number().int().positive(), updatedAt: z.string() })),
-    experiments: z.array(
-      experimentSchema.extend({
-        id: z.string().uuid(),
-        userId: z.string(),
-        version: z.number().int().positive(),
-        createdAt: z.string(),
-        updatedAt: z.string()
-      })
-    )
+    methods: z.array(syncMethodSchema),
+    experiments: z.array(syncExperimentSchema)
   });
 
   // Push changes to server

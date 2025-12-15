@@ -13,7 +13,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createRequire } from 'module';
 
-import { INVENTORY_CATEGORIES, User } from '@eln/shared';
+import { INVENTORY_CATEGORIES } from '@eln/shared/dist/types.js';
+import type { User } from '@eln/shared/dist/types.js';
+
+const inventoryCategoryEnum = z.enum(
+  INVENTORY_CATEGORIES as unknown as [string, ...string[]]
+);
 
 const locationSchema = z.object({
   name: z.string().min(1),
@@ -25,7 +30,7 @@ const locationSchema = z.object({
 const inventoryItemSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
-  category: z.enum(INVENTORY_CATEGORIES),
+  category: inventoryCategoryEnum,
   catalogNumber: z.string().optional(),
   manufacturer: z.string().optional(),
   supplier: z.string().optional(),
