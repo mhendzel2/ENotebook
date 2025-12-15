@@ -7,7 +7,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
-import { PrismaClient, Modality } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { MODALITIES, EXPERIMENT_STATUSES, SIGNATURE_TYPES } from '@eln/shared/dist/types.js';
 import type { User } from '@eln/shared/dist/types.js';
 import { 
@@ -276,7 +276,7 @@ export function createExperimentsRoutes(
       data: {
         userId: user.id,
         version: 1,
-        modality: modality as Modality,
+        modality,
         ...rest,
         tags: tags || []
       }
@@ -553,7 +553,7 @@ export function createExperimentsRoutes(
       },
       orderBy: { createdAt: 'asc' }
     });
-    res.json(comments.filter(c => !c.parentId));
+    res.json(comments.filter((c: any) => !c.parentId));
   }));
 
   router.post('/experiments/:id/comments', asyncHandler(async (req, res) => {

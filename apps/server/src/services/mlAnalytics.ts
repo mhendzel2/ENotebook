@@ -486,7 +486,7 @@ async function extractExperimentFeatures(
     }
   });
   
-  return experiments.map((exp) => {
+  return experiments.map((exp: any) => {
     // Extract numeric features from experiment content
     // Prisma JSON fields are already parsed objects
     const params = (exp.params ?? {}) as Record<string, unknown>;

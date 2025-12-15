@@ -224,7 +224,7 @@ export function createMethodsRoutes(
       },
       orderBy: { createdAt: 'asc' }
     });
-    res.json(comments.filter(c => !c.parentId));
+    res.json(comments.filter((c: any) => !c.parentId));
   }));
 
   router.post('/methods/:id/comments', asyncHandler(async (req, res) => {

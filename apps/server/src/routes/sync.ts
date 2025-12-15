@@ -72,7 +72,7 @@ export function createSyncRoutes(prisma: PrismaClient): Router {
     const applied: any[] = [];
 
     try {
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: any) => {
         // Handle Experiments
         for (const incExp of experiments) {
           const existing = await tx.experiment.findUnique({ where: { id: incExp.id } });

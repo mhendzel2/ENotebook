@@ -464,7 +464,7 @@ export class LocalSyncService {
     console.log(`[LocalSync] Export date: ${data.exportedAt}`);
 
     // Import in transaction
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx: any) => {
       // Import users
       for (const user of data.users || []) {
         await tx.user.upsert({

@@ -297,7 +297,7 @@ export class LabelService {
       orderBy: { scannedAt: 'desc' },
     });
 
-    return events.map(e => ({
+    return events.map((e: any) => ({
       id: e.id,
       scannedBy: e.scannedBy,
       scannedAt: e.scannedAt,
@@ -437,7 +437,7 @@ export function createLabelRoutes(prisma: PrismaClient, labelService: LabelServi
         orderBy: { createdAt: 'desc' },
       });
 
-      const parsed = templates.map(t => ({
+      const parsed = templates.map((t: any) => ({
         ...t,
         content: JSON.parse(t.content),
       }));

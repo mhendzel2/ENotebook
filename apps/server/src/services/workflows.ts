@@ -798,7 +798,7 @@ export function createWorkflowRoutes(prisma: PrismaClient, engine: WorkflowEngin
         orderBy: { createdAt: 'desc' },
       });
       
-      const parsed = workflows.map(w => ({
+      const parsed = workflows.map((w: any) => ({
         ...w,
         trigger: JSON.parse(w.trigger),
         steps: JSON.parse(w.steps),
@@ -924,7 +924,7 @@ export function createWorkflowRoutes(prisma: PrismaClient, engine: WorkflowEngin
         take: 50,
       });
 
-      const parsed = executions.map(e => ({
+      const parsed = executions.map((e: any) => ({
         ...e,
         triggerData: e.triggerData ? JSON.parse(e.triggerData) : null,
         stepResults: e.stepResults ? JSON.parse(e.stepResults) : null,

@@ -212,7 +212,7 @@ export class AuditTrailService {
     ]);
 
     // Parse and filter by userId if needed
-    let parsedEntries = entries.map(e => {
+    let parsedEntries = entries.map((e: any) => {
       try {
         const data = e.newValue ? JSON.parse(e.newValue) : {};
         return {
@@ -234,15 +234,15 @@ export class AuditTrailService {
       } catch {
         return null;
       }
-    }).filter((e): e is NonNullable<typeof e> => e !== null) as AuditEntry[];
+    }).filter((entry: any): entry is NonNullable<any> => entry !== null) as AuditEntry[];
 
     if (params.userId) {
-      parsedEntries = parsedEntries.filter(e => e.userId === params.userId);
+      parsedEntries = parsedEntries.filter((e: any) => e.userId === params.userId);
     }
 
     if (params.search) {
       const searchLower = params.search.toLowerCase();
-      parsedEntries = parsedEntries.filter(e =>
+      parsedEntries = parsedEntries.filter((e: any) =>
         e.userName?.toLowerCase().includes(searchLower) ||
         e.entityType.toLowerCase().includes(searchLower) ||
         e.entityId.toLowerCase().includes(searchLower) ||

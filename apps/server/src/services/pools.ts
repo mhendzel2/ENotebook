@@ -102,7 +102,7 @@ export class SamplePoolService {
     }
 
     // Create contribution and update stock in transaction
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx: any) => {
       // Add contribution
       await tx.poolContribution.create({
         data: {
@@ -214,7 +214,7 @@ export class SamplePoolService {
       where: { poolId },
     });
 
-    const totalUsed = usages.reduce((sum, u) => sum + u.volumeUsed, 0);
+    const totalUsed = usages.reduce((sum: number, u: any) => sum + u.volumeUsed, 0);
     return (pool.totalVolume || 0) - totalUsed;
   }
 
@@ -273,7 +273,7 @@ export class SamplePoolService {
 
     return {
       pool,
-      contributions: contributions.map(c => ({
+      contributions: contributions.map((c: any) => ({
         id: c.id,
         stock: c.stock,
         volumeAdded: c.volumeAdded,
@@ -283,7 +283,7 @@ export class SamplePoolService {
         addedBy: c.addedBy,
         notes: c.notes || undefined,
       })),
-      usages: usages.map(u => ({
+      usages: usages.map((u: any) => ({
         id: u.id,
         volumeUsed: u.volumeUsed,
         unit: u.unit,

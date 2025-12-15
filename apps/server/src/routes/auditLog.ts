@@ -29,7 +29,7 @@ export function createAuditLogRoutes(prisma: PrismaClient): Router {
       });
 
       res.json(
-        logs.map(log => ({
+        logs.map((log: any) => ({
           ...log,
           oldValue: log.oldValue ? JSON.parse(log.oldValue) : undefined,
           newValue: log.newValue ? JSON.parse(log.newValue) : undefined

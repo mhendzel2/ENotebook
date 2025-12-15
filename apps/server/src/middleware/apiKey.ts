@@ -171,7 +171,7 @@ export function createApiKeyRoutes(prisma: PrismaClient): Router {
         orderBy: { createdAt: 'desc' }
       });
 
-      res.json(keys.map(k => ({
+      res.json(keys.map((k: any) => ({
         ...k,
         permissions: JSON.parse(k.permissions)
       })));

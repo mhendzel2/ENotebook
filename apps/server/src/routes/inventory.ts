@@ -327,7 +327,7 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
         where,
         include: { stocks: { include: { location: true } } }
       });
-      const parsedItems = items.map(item => ({
+      const parsedItems = items.map((item: any) => ({
         ...item,
         properties: item.properties ? JSON.parse(item.properties) : undefined
       }));
@@ -396,7 +396,7 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
       const existing = await prisma.inventoryItem.findUnique({ where: { id: req.params.id } });
       if (!existing) return res.status(404).json({ error: 'Item not found' });
 
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: any) => {
         await tx.stock.deleteMany({ where: { itemId: req.params.id } });
         await tx.inventoryItem.delete({ where: { id: req.params.id } });
       });

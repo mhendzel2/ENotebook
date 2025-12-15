@@ -99,7 +99,7 @@ export function createExportRoutes(prisma: PrismaClient): Router {
       });
       
       // Parse JSON fields (Prisma returns JSON fields as objects, not strings)
-      const parsed = experiments.map(e => ({
+      const parsed = experiments.map((e: any) => ({
         ...e,
         params: e.params ?? undefined,
         observations: e.observations ?? undefined,
@@ -156,7 +156,7 @@ export function createExportRoutes(prisma: PrismaClient): Router {
       
       const methods = await prisma.method.findMany({ where });
       
-      const parsed = methods.map(m => ({
+      const parsed = methods.map((m: any) => ({
         ...m,
         steps: m.steps,
         reagents: m.reagents ?? undefined,
@@ -198,7 +198,7 @@ export function createExportRoutes(prisma: PrismaClient): Router {
         }
       });
       
-      const parsed = items.map(item => ({
+      const parsed = items.map((item: any) => ({
         ...item,
         properties: item.properties ? JSON.parse(item.properties) : undefined
       }));
@@ -245,7 +245,7 @@ export function createExportRoutes(prisma: PrismaClient): Router {
         orderBy: { createdAt: 'desc' }
       });
       
-      const parsed = logs.map(log => ({
+      const parsed = logs.map((log: any) => ({
         ...log,
         oldValue: log.oldValue ? JSON.parse(log.oldValue) : undefined,
         newValue: log.newValue ? JSON.parse(log.newValue) : undefined
@@ -293,19 +293,19 @@ export function createExportRoutes(prisma: PrismaClient): Router {
         exportedBy: user.id,
         version: '1.0',
         data: {
-          experiments: experiments.map(e => ({
+          experiments: experiments.map((e: any) => ({
             ...e,
             params: e.params ?? undefined,
             observations: e.observations ?? undefined,
             tags: e.tags ?? []
           })),
-          methods: methods.map(m => ({
+          methods: methods.map((m: any) => ({
             ...m,
             steps: m.steps,
             reagents: m.reagents ?? undefined,
             attachments: m.attachments ?? undefined
           })),
-          inventory: inventory.map(item => ({
+          inventory: inventory.map((item: any) => ({
             ...item,
             properties: item.properties ?? undefined
           })),
