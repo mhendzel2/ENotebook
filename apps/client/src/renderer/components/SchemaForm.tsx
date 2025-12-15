@@ -1,9 +1,16 @@
 /**
  * Dynamic Form Components for JSON Schema
  * Renders forms based on JSON Schema definitions with custom UI widgets
+ * 
+ * Features:
+ * - Conditional logic (show/hide fields based on other values)
+ * - Improved validation with detailed messages
+ * - Attachment preview with drag-and-drop
+ * - Image annotation capability
+ * - Accessibility-compliant with keyboard navigation
  */
 
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo, useCallback, useState, useRef, useEffect, DragEvent } from 'react';
 import type { JSONSchema } from '@eln/shared';
 
 // ==================== TYPES ====================
@@ -13,13 +20,45 @@ export interface SchemaFormProps {
   value: Record<string, unknown>;
   onChange: (value: Record<string, unknown>) => void;
   onValidate?: (errors: FormError[]) => void;
+  onAttachmentUpload?: (file: File, path: string) => Promise<string>;
   readOnly?: boolean;
   compact?: boolean;
+  showValidationOnBlur?: boolean;
+  enableConditionalLogic?: boolean;
 }
 
 export interface FormError {
   path: string;
   message: string;
+  type: 'error' | 'warning';
+}
+
+export interface ConditionalRule {
+  field: string;
+  condition: 'equals' | 'notEquals' | 'contains' | 'greaterThan' | 'lessThan' | 'isEmpty' | 'isNotEmpty';
+  value?: unknown;
+  action: 'show' | 'hide' | 'enable' | 'disable' | 'require';
+}
+
+export interface AttachmentPreview {
+  id: string;
+  filename: string;
+  mime: string;
+  url: string;
+  size: number;
+  annotations?: ImageAnnotation[];
+}
+
+export interface ImageAnnotation {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  label: string;
+  color: string;
+  author?: string;
+  createdAt: Date;
 }
 
 interface FieldProps {
@@ -30,37 +69,144 @@ interface FieldProps {
   errors: FormError[];
   readOnly?: boolean;
   compact?: boolean;
+  onAttachmentUpload?: (file: File, path: string) => Promise<string>;
+  formValue?: Record<string, unknown>; // Full form value for conditional logic
+  parentRequired?: string[];
+}
+
+// ==================== CONDITIONAL LOGIC ====================
+
+function evaluateCondition(rule: ConditionalRule, formValue: Record<string, unknown>): boolean {
+  const fieldValue = getNestedValue(formValue, rule.field);
+  
+  switch (rule.condition) {
+    case 'equals':
+      return fieldValue === rule.value;
+    case 'notEquals':
+      return fieldValue !== rule.value;
+    case 'contains':
+      return typeof fieldValue === 'string' && fieldValue.includes(String(rule.value));
+    case 'greaterThan':
+      return typeof fieldValue === 'number' && typeof rule.value === 'number' && fieldValue > rule.value;
+    case 'lessThan':
+      return typeof fieldValue === 'number' && typeof rule.value === 'number' && fieldValue < rule.value;
+    case 'isEmpty':
+      return fieldValue === undefined || fieldValue === null || fieldValue === '' || (Array.isArray(fieldValue) && fieldValue.length === 0);
+    case 'isNotEmpty':
+      return fieldValue !== undefined && fieldValue !== null && fieldValue !== '' && !(Array.isArray(fieldValue) && fieldValue.length === 0);
+    default:
+      return true;
+  }
+}
+
+function evaluateFieldVisibility(schema: JSONSchema, formValue: Record<string, unknown>): { visible: boolean; enabled: boolean; required: boolean } {
+  let visible = !schema['ui:hidden'];
+  let enabled = !schema['ui:readonly'];
+  let required = false;
+
+  const conditions = schema['ui:conditions'] as ConditionalRule[] | undefined;
+  if (conditions) {
+    for (const rule of conditions) {
+      const result = evaluateCondition(rule, formValue);
+      switch (rule.action) {
+        case 'show':
+          visible = result;
+          break;
+        case 'hide':
+          visible = !result;
+          break;
+        case 'enable':
+          enabled = result;
+          break;
+        case 'disable':
+          enabled = !result;
+          break;
+        case 'require':
+          required = result;
+          break;
+      }
+    }
+  }
+
+  return { visible, enabled, required };
 }
 
 // ==================== MAIN FORM COMPONENT ====================
 
-export function SchemaForm({ schema, value, onChange, onValidate, readOnly, compact }: SchemaFormProps) {
+export function SchemaForm({ 
+  schema, 
+  value, 
+  onChange, 
+  onValidate, 
+  onAttachmentUpload,
+  readOnly, 
+  compact,
+  showValidationOnBlur = true,
+  enableConditionalLogic = true
+}: SchemaFormProps) {
   const [errors, setErrors] = useState<FormError[]>([]);
+  const [touched, setTouched] = useState<Set<string>>(new Set());
 
   const handleChange = useCallback((path: string, fieldValue: unknown) => {
     const newValue = setNestedValue({ ...value }, path, fieldValue);
     onChange(newValue);
     
     // Validate on change
-    const validationErrors = validateSchema(schema, newValue);
+    const validationErrors = validateSchema(schema, newValue, enableConditionalLogic);
     setErrors(validationErrors);
     onValidate?.(validationErrors);
-  }, [value, onChange, schema, onValidate]);
+  }, [value, onChange, schema, onValidate, enableConditionalLogic]);
+
+  const handleBlur = useCallback((path: string) => {
+    if (showValidationOnBlur) {
+      setTouched(prev => new Set(prev).add(path));
+    }
+  }, [showValidationOnBlur]);
+
+  // Filter errors to only show touched fields
+  const visibleErrors = useMemo(() => {
+    if (!showValidationOnBlur) return errors;
+    return errors.filter(e => touched.has(e.path));
+  }, [errors, touched, showValidationOnBlur]);
 
   if (schema.type !== 'object' || !schema.properties) {
-    return <div style={styles.error}>Schema must be an object with properties</div>;
+    return <div style={styles.error} role="alert">Schema must be an object with properties</div>;
   }
 
   const orderedKeys = schema['ui:order'] || Object.keys(schema.properties);
 
   return (
-    <div style={compact ? styles.formCompact : styles.form}>
+    <div 
+      style={compact ? styles.formCompact : styles.form}
+      role="form"
+      aria-label={schema.title || 'Form'}
+    >
       {schema.title && <h3 style={styles.formTitle}>{schema.title}</h3>}
       {schema.description && <p style={styles.formDescription}>{schema.description}</p>}
       
+      {/* Form-level error summary for accessibility */}
+      {visibleErrors.length > 0 && (
+        <div style={styles.errorSummary} role="alert" aria-live="polite">
+          <strong>Please fix the following errors:</strong>
+          <ul style={styles.errorList}>
+            {visibleErrors.map((e, i) => (
+              <li key={i}>
+                <a href={`#field-${e.path}`} style={styles.errorLink}>{e.message}</a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      
       {orderedKeys.map(key => {
         const fieldSchema = schema.properties![key];
-        if (!fieldSchema || fieldSchema['ui:hidden']) return null;
+        if (!fieldSchema) return null;
+        
+        const { visible, enabled, required } = enableConditionalLogic 
+          ? evaluateFieldVisibility(fieldSchema, value)
+          : { visible: !fieldSchema['ui:hidden'], enabled: !fieldSchema['ui:readonly'], required: false };
+        
+        if (!visible) return null;
         
         return (
           <Field
@@ -69,9 +215,12 @@ export function SchemaForm({ schema, value, onChange, onValidate, readOnly, comp
             path={key}
             value={getNestedValue(value, key)}
             onChange={handleChange}
-            errors={errors.filter(e => e.path.startsWith(key))}
-            readOnly={readOnly || fieldSchema['ui:readonly']}
+            errors={visibleErrors.filter(e => e.path.startsWith(key))}
+            readOnly={readOnly || !enabled}
             compact={compact}
+            onAttachmentUpload={onAttachmentUpload}
+            formValue={value}
+            parentRequired={required ? [key] : schema.required}
           />
         );
       })}

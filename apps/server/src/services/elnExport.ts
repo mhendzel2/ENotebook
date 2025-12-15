@@ -633,10 +633,10 @@ Generated: ${new Date().toISOString()}
               modality: expData.modality || 'molecular_biology',
               status: 'draft', // Reset status for imported experiments
               version: 1,
-              params: expData.params ? JSON.stringify(expData.params) : null,
-              observations: expData.observations ? JSON.stringify(expData.observations) : null,
+              params: expData.params ?? undefined,
+              observations: expData.observations ?? undefined,
               resultsSummary: expData.resultsSummary || null,
-              tags: JSON.stringify(importTags)
+              tags: importTags
             }
           });
 

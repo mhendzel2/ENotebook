@@ -519,7 +519,8 @@ class StatisticsAction implements ActionHandler {
       return { error: 'No observations found' };
     }
 
-    const observations = JSON.parse(experiment.observations);
+    // Prisma JSON fields are already parsed objects
+    const observations = experiment.observations as Record<string, unknown>;
     const results: Record<string, unknown> = {};
 
     // Calculate basic statistics on numeric fields
