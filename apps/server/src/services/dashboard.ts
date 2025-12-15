@@ -712,7 +712,7 @@ export function createDashboardRoutes(prisma: PrismaClient, dashboardService: Da
         orderBy: { updatedAt: 'desc' },
       });
 
-      const parsed = queries.map(q => ({
+      const parsed = queries.map((q: any) => ({
         ...q,
         parameters: q.parameters ? JSON.parse(q.parameters) : [],
       }));

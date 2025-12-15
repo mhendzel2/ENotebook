@@ -357,7 +357,7 @@ export class SamplePoolService {
       include: { pool: true },
     });
 
-    return contributions.map(c => ({
+    return contributions.map((c: any) => ({
       pool: c.pool,
       contribution: {
         volumeAdded: c.volumeAdded,
@@ -378,7 +378,7 @@ export class SamplePoolService {
       include: { pool: true },
     });
 
-    return usages.map(u => ({
+    return usages.map((u: any) => ({
       pool: u.pool,
       usage: {
         volumeUsed: u.volumeUsed,
