@@ -84,6 +84,15 @@ function App() {
         fetch(`${API_BASE}/experiments`, { headers }),
       ]);
 
+      if ([methodsRes, experimentsRes].some(r => r.status === 401 || r.status === 403)) {
+        localStorage.removeItem('eln-user');
+        setUser(null);
+        setAuthState('login');
+        setMethods([]);
+        setExperiments([]);
+        return;
+      }
+
       if (methodsRes.ok) {
         const data = await methodsRes.json();
         setMethods(data);
@@ -2579,6 +2588,18 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     padding: '20px 24px',
     borderBottom: '1px solid #e2e8f0',
+  },
+  alert: {
+    margin: '16px 24px 0',
+    padding: '10px 12px',
+    borderRadius: 10,
+    fontSize: 13,
+    lineHeight: 1.4,
+  },
+  alertError: {
+    background: '#fef2f2',
+    border: '1px solid #fecaca',
+    color: '#991b1b',
   },
   closeButton: {
     width: 32,
