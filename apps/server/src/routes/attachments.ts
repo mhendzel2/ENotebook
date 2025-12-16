@@ -9,6 +9,10 @@ import { v4 as uuid, validate as uuidValidate } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { DataProcessingService } from '../services/dataProcessing.js';
+
+// Initialize data processing service
+const dataProcessor = new DataProcessingService();
 
 // Rate limiting configuration (simple in-memory implementation)
 interface RateLimitEntry {
@@ -237,10 +241,78 @@ export function createAttachmentRoutes(prisma: PrismaClient): Router {
         }
       });
 
+      // ============================================================
+      // INFORMATICS INTEGRATION: Process data files automatically
+      // ============================================================
+      let processedDataset = null;
+      try {
+        // Attempt to parse the file if it's a supported data format
+        processedDataset = dataProcessor.processFile(fileBuffer, mimeType, safeFilename);
+        
+        if (processedDataset) {
+          console.log(`[DataProcessing] Successfully parsed ${safeFilename}: ${processedDataset.recordCount} records`);
+          
+          // Fetch current experiment observations
+          const currentExperiment = await prisma.experiment.findUnique({
+            where: { id: experimentId },
+            select: { observations: true }
+          });
+          
+          // Merge new dataset into observations.datasets array
+          const observations = (currentExperiment?.observations as Record<string, unknown>) || {};
+          const datasets = (observations.datasets as Record<string, unknown>[]) || [];
+          
+          // Add attachment metadata to the processed dataset
+          datasets.push({
+            ...processedDataset,
+            attachmentId,
+            filename: safeFilename,
+          });
+          
+          // Build the updated observations object
+          const updatedObservations = {
+            ...observations,
+            datasets,
+          };
+          
+          // Update experiment with new dataset
+          await prisma.experiment.update({
+            where: { id: experimentId },
+            data: {
+              observations: updatedObservations as any
+            }
+          });
+          
+          // Log the data extraction
+          await prisma.changeLog.create({
+            data: {
+              entityType: 'experiment',
+              entityId: experimentId,
+              operation: 'update',
+              newValue: JSON.stringify({
+                action: 'data_extraction',
+                attachmentId,
+                filename: safeFilename,
+                recordCount: processedDataset.recordCount,
+                columns: processedDataset.columns,
+                processedAt: processedDataset.processedAt
+              })
+            }
+          });
+        }
+      } catch (processingError) {
+        // Log but don't fail the upload if data processing fails
+        console.error(`[DataProcessing] Failed to process ${safeFilename}:`, processingError);
+      }
+
       res.status(201).json({
         ...attachment,
         checksum,
-        uploadedBy: user.id
+        uploadedBy: user.id,
+        dataExtracted: processedDataset ? {
+          recordCount: processedDataset.recordCount,
+          columns: processedDataset.columns,
+        } : null
       });
 
     } catch (error: any) {

@@ -276,7 +276,7 @@ export function createExperimentsRoutes(
       data: {
         userId: user.id,
         version: 1,
-        modality,
+        modality: modality as any, // Type assertion for Prisma enum
         ...rest,
         tags: tags || []
       }
