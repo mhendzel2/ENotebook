@@ -5,6 +5,10 @@
  * - PDF (immutable reports)
  * - ZIP (complete archives with attachments)
  * - JSON/CSV (FAIR data principles)
+ * - Parquet (columnar format for large datasets)
+ * - HDF5 (hierarchical data for scientific computing)
+ * 
+ * Enhanced with FAIR metadata support and domain-specific templates
  */
 
 import { PrismaClient } from '@prisma/client';
@@ -14,16 +18,32 @@ import archiver from 'archiver';
 import { Writable } from 'stream';
 import puppeteer from 'puppeteer';
 import AdmZip from 'adm-zip';
+import type {
+  FAIRMetadata,
+  FAIRCreator,
+  FAIRIdentifier,
+  MetadataTemplate,
+  ControlledVocabularyTerm,
+} from '@eln/shared/dist/sync.js';
+import {
+  METADATA_TEMPLATES,
+  CONTROLLED_VOCABULARIES,
+} from '@eln/shared/dist/sync.js';
 
 // ==================== TYPES ====================
 
+export type ExportFormat = 'eln' | 'pdf' | 'zip' | 'json' | 'csv' | 'parquet' | 'hdf5';
+
 export interface ExportOptions {
-  format: 'eln' | 'pdf' | 'zip' | 'json' | 'csv';
+  format: ExportFormat;
   includeAttachments: boolean;
   includeSignatures: boolean;
   includeAuditTrail: boolean;
   includeComments: boolean;
+  includeFAIRMetadata: boolean;
+  metadataTemplate?: string;
   dateRange?: { start: Date; end: Date };
+  fairMetadata?: Partial<FAIRMetadata>;
 }
 
 export interface ROCrateMetadata {
@@ -569,6 +589,377 @@ Generated: ${new Date().toISOString()}
 </html>`;
   }
 
+  // ==================== FAIR METADATA METHODS ====================
+
+  /**
+   * Generate FAIR-compliant metadata for experiments
+   */
+  generateFAIRMetadata(experiments: any[], options: Partial<ExportOptions> = {}): FAIRMetadata {
+    const creators = new Map<string, FAIRCreator>();
+    const keywords = new Set<string>();
+    const subjects: ControlledVocabularyTerm[] = [];
+
+    for (const exp of experiments) {
+      // Collect creators
+      if (exp.user && !creators.has(exp.user.id)) {
+        creators.set(exp.user.id, {
+          name: exp.user.name,
+          givenName: exp.user.name.split(' ')[0],
+          familyName: exp.user.name.split(' ').slice(1).join(' ') || undefined,
+          orcid: exp.user.orcid || undefined,
+          affiliation: exp.user.affiliation || undefined,
+        });
+      }
+
+      // Collect keywords from tags
+      const tags = Array.isArray(exp.tags) ? exp.tags : (exp.tags ? JSON.parse(exp.tags) : []);
+      tags.forEach((tag: string) => keywords.add(tag));
+
+      // Add modality as subject
+      if (exp.modality) {
+        subjects.push({
+          vocabulary: 'eln:modality',
+          term: exp.modality,
+          label: exp.modality.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
+        });
+      }
+    }
+
+    // Merge with user-provided FAIR metadata
+    const userMeta = options.fairMetadata || {};
+
+    return {
+      identifiers: userMeta.identifiers || [
+        { type: 'uuid', value: crypto.randomUUID() }
+      ],
+      title: userMeta.title || `ELN Export - ${experiments.length} Experiment(s)`,
+      description: userMeta.description || experiments.map(e => e.title).join(', '),
+      creators: userMeta.creators || Array.from(creators.values()),
+      keywords: userMeta.keywords || Array.from(keywords),
+      subjects: userMeta.subjects || subjects,
+      license: userMeta.license || 'All Rights Reserved',
+      dateCreated: experiments.reduce(
+        (min, exp) => exp.createdAt < min ? exp.createdAt : min,
+        experiments[0]?.createdAt
+      )?.toISOString() || new Date().toISOString(),
+      dateModified: experiments.reduce(
+        (max, exp) => exp.updatedAt > max ? exp.updatedAt : max,
+        experiments[0]?.updatedAt
+      )?.toISOString() || new Date().toISOString(),
+      version: '1.0',
+      relatedIdentifiers: userMeta.relatedIdentifiers,
+      fundingReferences: userMeta.fundingReferences,
+    };
+  }
+
+  /**
+   * Get available metadata templates
+   */
+  getMetadataTemplates(): MetadataTemplate[] {
+    return METADATA_TEMPLATES;
+  }
+
+  /**
+   * Get template by modality or domain
+   */
+  getTemplateForModality(modality: string): MetadataTemplate | undefined {
+    const modalityToTemplate: Record<string, string> = {
+      'flow_cytometry': 'miflowcyt',
+      'qPCR': 'miqe',
+      'RT-qPCR': 'miqe',
+      'microarray': 'miame',
+      'RNAseq': 'miame',
+      'microscopy': 'rembi',
+      'confocal': 'rembi',
+      'imaging': 'rembi',
+    };
+
+    const templateId = modalityToTemplate[modality];
+    if (templateId) {
+      return METADATA_TEMPLATES.find(t => t.id === templateId);
+    }
+    return undefined;
+  }
+
+  /**
+   * Get controlled vocabulary terms
+   */
+  getControlledVocabulary(vocabulary: string): string[] {
+    return CONTROLLED_VOCABULARIES[vocabulary] || [];
+  }
+
+  /**
+   * Validate experiment metadata against a template
+   */
+  validateAgainstTemplate(experiment: any, templateId: string): { valid: boolean; errors: string[] } {
+    const template = METADATA_TEMPLATES.find(t => t.id === templateId);
+    if (!template) {
+      return { valid: false, errors: [`Template '${templateId}' not found`] };
+    }
+
+    const errors: string[] = [];
+    const params = experiment.params ? JSON.parse(experiment.params) : {};
+
+    for (const field of template.fields) {
+      if (field.required && !(field.name in params)) {
+        errors.push(`Missing required field: ${field.label}`);
+      }
+
+      if (field.name in params) {
+        const value = params[field.name];
+
+        // Type validation
+        if (field.type === 'number' && typeof value !== 'number') {
+          errors.push(`Field '${field.label}' must be a number`);
+        }
+        if (field.type === 'boolean' && typeof value !== 'boolean') {
+          errors.push(`Field '${field.label}' must be a boolean`);
+        }
+        if (field.type === 'array' && !Array.isArray(value)) {
+          errors.push(`Field '${field.label}' must be an array`);
+        }
+
+        // Controlled vocabulary validation
+        if (field.type === 'controlled' && field.vocabulary) {
+          const vocab = this.getControlledVocabulary(field.vocabulary);
+          if (vocab.length > 0 && !vocab.includes(value)) {
+            errors.push(`Field '${field.label}' must be one of: ${vocab.slice(0, 5).join(', ')}...`);
+          }
+        }
+
+        // Range validation
+        if (field.validation) {
+          if (field.validation.min !== undefined && typeof value === 'number' && value < field.validation.min) {
+            errors.push(`Field '${field.label}' must be >= ${field.validation.min}`);
+          }
+          if (field.validation.max !== undefined && typeof value === 'number' && value > field.validation.max) {
+            errors.push(`Field '${field.label}' must be <= ${field.validation.max}`);
+          }
+        }
+      }
+    }
+
+    return { valid: errors.length === 0, errors };
+  }
+
+  // ==================== ADDITIONAL EXPORT FORMATS ====================
+
+  /**
+   * Export experiments to JSON format with FAIR metadata
+   */
+  async exportToJSON(experimentIds: string[], options: Partial<ExportOptions> = {}): Promise<Buffer> {
+    const experiments = await this.prisma.experiment.findMany({
+      where: { id: { in: experimentIds } },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        protocol: true,
+        attachments: options.includeAttachments ? true : false,
+        signatures: options.includeSignatures ? {
+          include: { user: { select: { id: true, name: true } } }
+        } : false,
+        comments: options.includeComments ? {
+          include: { author: { select: { id: true, name: true } } }
+        } : false,
+      }
+    });
+
+    const output: Record<string, unknown> = {
+      '@context': 'https://schema.org',
+      '@type': 'Dataset',
+      exportedAt: new Date().toISOString(),
+      experiments: experiments.map(exp => this.formatExperimentForExport(exp, options)),
+    };
+
+    if (options.includeFAIRMetadata) {
+      output.fairMetadata = this.generateFAIRMetadata(experiments, options);
+    }
+
+    return Buffer.from(JSON.stringify(output, null, 2), 'utf-8');
+  }
+
+  /**
+   * Export experiments to CSV format
+   */
+  async exportToCSV(experimentIds: string[]): Promise<Buffer> {
+    const experiments = await this.prisma.experiment.findMany({
+      where: { id: { in: experimentIds } },
+      include: {
+        user: { select: { id: true, name: true } },
+      }
+    });
+
+    // CSV header
+    const headers = [
+      'id', 'title', 'project', 'modality', 'status', 'version',
+      'author_name', 'created_at', 'updated_at', 'results_summary', 'tags'
+    ];
+
+    // Escape CSV value
+    const escapeCSV = (val: unknown): string => {
+      const str = String(val ?? '');
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const rows = experiments.map(exp => [
+      exp.id,
+      exp.title,
+      exp.project || '',
+      exp.modality,
+      exp.status,
+      exp.version,
+      exp.user.name,
+      exp.createdAt.toISOString(),
+      exp.updatedAt.toISOString(),
+      exp.resultsSummary || '',
+      Array.isArray(exp.tags) ? exp.tags.join(';') : '',
+    ].map(escapeCSV).join(','));
+
+    const csv = [headers.join(','), ...rows].join('\n');
+    return Buffer.from(csv, 'utf-8');
+  }
+
+  /**
+   * Export to Parquet format (stub - requires apache-arrow package)
+   * Parquet is ideal for large tabular datasets with efficient compression
+   */
+  async exportToParquet(experimentIds: string[]): Promise<Buffer> {
+    // NOTE: Full implementation requires @apache-arrow/ts or similar package
+    // This is a placeholder that returns JSON with Parquet-compatible schema info
+    
+    const experiments = await this.prisma.experiment.findMany({
+      where: { id: { in: experimentIds } },
+      include: {
+        user: { select: { id: true, name: true } },
+      }
+    });
+
+    // Schema definition for Parquet
+    const schema = {
+      fields: [
+        { name: 'id', type: 'utf8', nullable: false },
+        { name: 'title', type: 'utf8', nullable: false },
+        { name: 'project', type: 'utf8', nullable: true },
+        { name: 'modality', type: 'utf8', nullable: false },
+        { name: 'status', type: 'utf8', nullable: false },
+        { name: 'version', type: 'int32', nullable: false },
+        { name: 'author_name', type: 'utf8', nullable: false },
+        { name: 'created_at', type: 'timestamp[ms]', nullable: false },
+        { name: 'updated_at', type: 'timestamp[ms]', nullable: false },
+        { name: 'params', type: 'utf8', nullable: true }, // JSON string
+      ]
+    };
+
+    // Data rows
+    const rows = experiments.map(exp => ({
+      id: exp.id,
+      title: exp.title,
+      project: exp.project,
+      modality: exp.modality,
+      status: exp.status,
+      version: exp.version,
+      author_name: exp.user.name,
+      created_at: exp.createdAt.getTime(),
+      updated_at: exp.updatedAt.getTime(),
+      params: exp.params ? String(exp.params) : null,
+    }));
+
+    // Return schema + data as JSON (actual Parquet would be binary)
+    const parquetPlaceholder = {
+      _format: 'parquet-schema-preview',
+      _note: 'Install @apache-arrow/ts for actual Parquet output',
+      schema,
+      rowCount: rows.length,
+      data: rows,
+    };
+
+    return Buffer.from(JSON.stringify(parquetPlaceholder, null, 2), 'utf-8');
+  }
+
+  /**
+   * Export to HDF5 format (stub - requires h5wasm or similar package)
+   * HDF5 is ideal for hierarchical scientific data with rich metadata
+   */
+  async exportToHDF5(experimentIds: string[]): Promise<Buffer> {
+    // NOTE: Full implementation requires h5wasm or node-hdf5 package
+    // This is a placeholder that returns JSON with HDF5-compatible structure
+    
+    const experiments = await this.prisma.experiment.findMany({
+      where: { id: { in: experimentIds } },
+      include: {
+        user: { select: { id: true, name: true } },
+        attachments: true,
+        stockUsages: {
+          include: { stock: { include: { item: true } } }
+        }
+      }
+    });
+
+    // HDF5-like hierarchical structure
+    const hdf5Structure = {
+      _format: 'hdf5-structure-preview',
+      _note: 'Install h5wasm for actual HDF5 output',
+      attributes: {
+        created: new Date().toISOString(),
+        version: '1.0',
+        application: 'ENotebook',
+      },
+      groups: experiments.map(exp => ({
+        path: `/experiments/${exp.id}`,
+        attributes: {
+          title: exp.title,
+          modality: exp.modality,
+          status: exp.status,
+          version: exp.version,
+          author: exp.user.name,
+          created: exp.createdAt.toISOString(),
+          modified: exp.updatedAt.toISOString(),
+        },
+        datasets: [
+          {
+            name: 'params',
+            dtype: 'string',
+            data: exp.params || '{}',
+          },
+          {
+            name: 'observations',
+            dtype: 'string',
+            data: exp.observations || '{}',
+          },
+        ],
+        subgroups: [
+          {
+            path: 'attachments',
+            datasets: exp.attachments.map(att => ({
+              name: att.filename,
+              dtype: 'binary',
+              attributes: {
+                mime: att.mime,
+                size: att.size,
+              }
+            }))
+          },
+          {
+            path: 'reagents',
+            datasets: exp.stockUsages.map(su => ({
+              name: su.stock.item.name,
+              dtype: 'object',
+              data: {
+                quantity: su.quantityUsed,
+                unit: su.unit,
+                lotNumber: su.stock.lotNumber,
+              }
+            }))
+          }
+        ]
+      }))
+    };
+
+    return Buffer.from(JSON.stringify(hdf5Structure, null, 2), 'utf-8');
+  }
+
   /**
    * Import .eln archive
    */
@@ -714,6 +1105,164 @@ export function createElnExportRoutes(prisma: PrismaClient): Router {
       res.send(buffer);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Export to JSON with FAIR metadata
+  router.post('/export/json', async (req: Request, res: Response) => {
+    const { experimentIds, options } = req.body;
+
+    if (!experimentIds || !Array.isArray(experimentIds)) {
+      return res.status(400).json({ error: 'experimentIds array required' });
+    }
+
+    try {
+      const buffer = await exportService.exportToJSON(experimentIds, {
+        ...options,
+        includeFAIRMetadata: options?.includeFAIRMetadata !== false,
+      });
+
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename=eln-export-${Date.now()}.json`);
+      res.send(buffer);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Export to CSV
+  router.post('/export/csv', async (req: Request, res: Response) => {
+    const { experimentIds } = req.body;
+
+    if (!experimentIds || !Array.isArray(experimentIds)) {
+      return res.status(400).json({ error: 'experimentIds array required' });
+    }
+
+    try {
+      const buffer = await exportService.exportToCSV(experimentIds);
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=eln-export-${Date.now()}.csv`);
+      res.send(buffer);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Export to Parquet (columnar format)
+  router.post('/export/parquet', async (req: Request, res: Response) => {
+    const { experimentIds } = req.body;
+
+    if (!experimentIds || !Array.isArray(experimentIds)) {
+      return res.status(400).json({ error: 'experimentIds array required' });
+    }
+
+    try {
+      const buffer = await exportService.exportToParquet(experimentIds);
+
+      // Note: Real Parquet would use application/vnd.apache.parquet
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename=eln-export-${Date.now()}.parquet.json`);
+      res.send(buffer);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Export to HDF5 (hierarchical format)
+  router.post('/export/hdf5', async (req: Request, res: Response) => {
+    const { experimentIds } = req.body;
+
+    if (!experimentIds || !Array.isArray(experimentIds)) {
+      return res.status(400).json({ error: 'experimentIds array required' });
+    }
+
+    try {
+      const buffer = await exportService.exportToHDF5(experimentIds);
+
+      // Note: Real HDF5 would use application/x-hdf5
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename=eln-export-${Date.now()}.h5.json`);
+      res.send(buffer);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get FAIR metadata for experiments
+  router.post('/export/fair-metadata', async (req: Request, res: Response) => {
+    const { experimentIds, fairOptions } = req.body;
+
+    if (!experimentIds || !Array.isArray(experimentIds)) {
+      return res.status(400).json({ error: 'experimentIds array required' });
+    }
+
+    try {
+      const experiments = await prisma.experiment.findMany({
+        where: { id: { in: experimentIds } },
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+        }
+      });
+
+      const metadata = exportService.generateFAIRMetadata(experiments, {
+        fairMetadata: fairOptions,
+      });
+
+      res.json(metadata);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get metadata templates
+  router.get('/export/templates', (_req: Request, res: Response) => {
+    res.json({
+      templates: exportService.getMetadataTemplates(),
+    });
+  });
+
+  // Get template for modality
+  router.get('/export/templates/:modality', (req: Request, res: Response) => {
+    const template = exportService.getTemplateForModality(req.params.modality);
+    if (template) {
+      res.json(template);
+    } else {
+      res.status(404).json({ error: 'No template found for this modality' });
+    }
+  });
+
+  // Validate experiment against template
+  router.post('/export/validate', async (req: Request, res: Response) => {
+    const { experimentId, templateId } = req.body;
+
+    if (!experimentId || !templateId) {
+      return res.status(400).json({ error: 'experimentId and templateId required' });
+    }
+
+    try {
+      const experiment = await prisma.experiment.findUnique({
+        where: { id: experimentId },
+      });
+
+      if (!experiment) {
+        return res.status(404).json({ error: 'Experiment not found' });
+      }
+
+      const result = exportService.validateAgainstTemplate(experiment, templateId);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get controlled vocabulary
+  router.get('/export/vocabulary/:name', (req: Request, res: Response) => {
+    const vocab = exportService.getControlledVocabulary(req.params.name);
+    if (vocab.length > 0) {
+      res.json({ vocabulary: req.params.name, terms: vocab });
+    } else {
+      res.status(404).json({ error: 'Vocabulary not found' });
     }
   });
 
