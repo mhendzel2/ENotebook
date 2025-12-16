@@ -24,7 +24,7 @@ import type {
   EntityType,
   ChangeOperation,
   ConflictResolutionStrategy,
-} from '@eln/shared/dist/sync.js';
+} from '@eln/shared';
 
 // ==================== CONFIGURATION ====================
 

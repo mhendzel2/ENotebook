@@ -24,11 +24,11 @@ import type {
   FAIRIdentifier,
   MetadataTemplate,
   ControlledVocabularyTerm,
-} from '@eln/shared/dist/sync.js';
+} from '@eln/shared';
 import {
   METADATA_TEMPLATES,
   CONTROLLED_VOCABULARIES,
-} from '@eln/shared/dist/sync.js';
+} from '@eln/shared';
 
 // ==================== TYPES ====================
 
@@ -676,7 +676,7 @@ Generated: ${new Date().toISOString()}
 
     const templateId = modalityToTemplate[modality];
     if (templateId) {
-      return METADATA_TEMPLATES.find(t => t.id === templateId);
+      return METADATA_TEMPLATES.find((t: MetadataTemplate) => t.id === templateId);
     }
     return undefined;
   }
