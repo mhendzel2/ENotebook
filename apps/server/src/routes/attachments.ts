@@ -260,7 +260,7 @@ export function createAttachmentRoutes(prisma: PrismaClient): Router {
           
           // Merge new dataset into observations.datasets array
           const observations = (currentExperiment?.observations as Record<string, unknown>) || {};
-          const datasets = (observations.datasets as unknown[]) || [];
+          const datasets = (observations.datasets as Record<string, unknown>[]) || [];
           
           // Add attachment metadata to the processed dataset
           datasets.push({
@@ -269,14 +269,17 @@ export function createAttachmentRoutes(prisma: PrismaClient): Router {
             filename: safeFilename,
           });
           
+          // Build the updated observations object
+          const updatedObservations = {
+            ...observations,
+            datasets,
+          };
+          
           // Update experiment with new dataset
           await prisma.experiment.update({
             where: { id: experimentId },
             data: {
-              observations: {
-                ...observations,
-                datasets,
-              }
+              observations: updatedObservations as any
             }
           });
           
