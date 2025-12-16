@@ -24,11 +24,11 @@ import type {
   FAIRIdentifier,
   MetadataTemplate,
   ControlledVocabularyTerm,
-} from '@eln/shared';
+} from '@eln/shared/dist/sync.js';
 import {
   METADATA_TEMPLATES,
   CONTROLLED_VOCABULARIES,
-} from '@eln/shared';
+} from '@eln/shared/dist/sync.js';
 
 // ==================== TYPES ====================
 
@@ -692,7 +692,7 @@ Generated: ${new Date().toISOString()}
    * Validate experiment metadata against a template
    */
   validateAgainstTemplate(experiment: any, templateId: string): { valid: boolean; errors: string[] } {
-    const template = METADATA_TEMPLATES.find(t => t.id === templateId);
+    const template = METADATA_TEMPLATES.find((t: MetadataTemplate) => t.id === templateId);
     if (!template) {
       return { valid: false, errors: [`Template '${templateId}' not found`] };
     }
@@ -943,12 +943,12 @@ Generated: ${new Date().toISOString()}
           },
           {
             path: 'reagents',
-            datasets: exp.stockUsages.map(su => ({
+            datasets: exp.stockUsages.map((su: any) => ({
               name: su.stock.item.name,
               dtype: 'object',
               data: {
                 quantity: su.quantityUsed,
-                unit: su.unit,
+                notes: su.notes,
                 lotNumber: su.stock.lotNumber,
               }
             }))

@@ -73,7 +73,7 @@ export interface FieldConflict {
 
 // ==================== SYNC STATE TYPES ====================
 
-export interface SyncState {
+export interface EnhancedSyncState {
   status: SyncStatus;
   isOnline: boolean;
   deviceId: string;

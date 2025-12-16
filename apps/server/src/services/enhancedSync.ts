@@ -13,7 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import type {
-  SyncState,
+  EnhancedSyncState,
   SyncStatus,
   PendingChange,
   SyncConflict,
@@ -24,7 +24,7 @@ import type {
   EntityType,
   ChangeOperation,
   ConflictResolutionStrategy,
-} from '@eln/shared';
+} from '@eln/shared/dist/sync.js';
 
 // ==================== CONFIGURATION ====================
 
@@ -533,7 +533,7 @@ export class EnhancedSyncService {
     }
   }
 
-  async syncNow(): Promise<SyncState> {
+  async syncNow(): Promise<EnhancedSyncState> {
     if (this.isSyncing) {
       console.log('[EnhancedSync] Sync already in progress');
       return this.getStatus();
@@ -542,7 +542,7 @@ export class EnhancedSyncService {
     this.isSyncing = true;
     this.emit('sync-started', {});
 
-    const result: SyncState = {
+    const result: EnhancedSyncState = {
       status: 'syncing',
       isOnline: this.isOnline,
       deviceId: this.config.deviceId,
@@ -615,8 +615,8 @@ export class EnhancedSyncService {
 
     // Sort by priority and timestamp
     pending.sort((a, b) => {
-      const priorityOrder = { high: 0, normal: 1, low: 2 };
-      const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
+      const priorityOrder: Record<string, number> = { high: 0, normal: 1, low: 2 };
+      const priorityDiff = (priorityOrder[a.priority] ?? 1) - (priorityOrder[b.priority] ?? 1);
       if (priorityDiff !== 0) return priorityDiff;
       return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
     });
@@ -838,7 +838,7 @@ export class EnhancedSyncService {
 
   // ==================== STATUS ====================
 
-  async getStatus(): Promise<SyncState> {
+  async getStatus(): Promise<EnhancedSyncState> {
     const pending = this.loadPendingChanges().filter(c => !c.synced);
     const conflicts = this.loadConflicts().filter(c => !c.resolvedAt);
     const pendingUploads = pending.filter(c => c.entityType === 'attachment').length;
