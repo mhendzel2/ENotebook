@@ -464,6 +464,38 @@ export interface RichObservations {
   cellCounts?: CellCountData;
   images?: EmbeddedImage[];
   conclusions?: string;
+  datasets?: ProcessedDataset[]; // Auto-extracted from CSV/TSV attachments
+}
+
+/**
+ * Auto-extracted dataset from uploaded file (CSV, TSV, JSON)
+ */
+export interface ProcessedDataset {
+  attachmentId: string;
+  filename: string;
+  type: string;
+  processedAt: string;
+  recordCount: number;
+  columns?: string[];
+  data: Record<string, unknown>[];
+  statistics?: DatasetStatistics;
+}
+
+export interface DatasetStatistics {
+  numericColumns: string[];
+  categoricalColumns: string[];
+  summary: Record<string, ColumnSummary>;
+}
+
+export interface ColumnSummary {
+  type: 'numeric' | 'categorical' | 'date' | 'mixed';
+  count: number;
+  uniqueCount?: number;
+  min?: number;
+  max?: number;
+  mean?: number;
+  stdDev?: number;
+  topValues?: Array<{ value: string; count: number }>;
 }
 
 export interface EmbeddedImage {

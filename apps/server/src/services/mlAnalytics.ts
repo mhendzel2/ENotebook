@@ -490,6 +490,7 @@ async function extractExperimentFeatures(
     // Extract numeric features from experiment content
     // Prisma JSON fields are already parsed objects
     const params = (exp.params ?? {}) as Record<string, unknown>;
+    const observations = (exp.observations ?? {}) as Record<string, unknown>;
     const numericFeatures: number[] = [];
     const categoricalFeatures: Record<string, string> = {};
     
@@ -523,6 +524,44 @@ async function extractExperimentFeatures(
       }
     }
     extractNumbers(params);
+    
+    // ============================================================
+    // INFORMATICS INTEGRATION: Extract features from datasets
+    // ============================================================
+    const datasets = (observations.datasets ?? []) as any[];
+    if (datasets.length > 0) {
+      // Add dataset count as a feature
+      numericFeatures.push(datasets.length);
+      
+      // Extract statistics from each dataset
+      for (const dataset of datasets) {
+        if (dataset.statistics?.summary) {
+          for (const [column, summary] of Object.entries(dataset.statistics.summary)) {
+            const columnSummary = summary as any;
+            if (columnSummary.type === 'numeric') {
+              // Add mean values as features (useful for ML)
+              if (typeof columnSummary.mean === 'number' && isFinite(columnSummary.mean)) {
+                numericFeatures.push(columnSummary.mean);
+              }
+              // Add range as feature
+              if (typeof columnSummary.min === 'number' && typeof columnSummary.max === 'number') {
+                numericFeatures.push(columnSummary.max - columnSummary.min);
+              }
+            }
+          }
+        }
+        // Record count can indicate experiment complexity
+        if (typeof dataset.recordCount === 'number') {
+          numericFeatures.push(dataset.recordCount);
+        }
+      }
+      
+      // Track dataset types as categorical
+      const datasetTypes = datasets.map(d => d.type).filter(Boolean);
+      if (datasetTypes.length > 0) {
+        categoricalFeatures['datasetTypes'] = datasetTypes.join(',');
+      }
+    }
     
     // Status as categorical
     categoricalFeatures['status'] = exp.status;
