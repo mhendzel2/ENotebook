@@ -22,17 +22,48 @@ function App() {
 
   // Check for existing session on mount
   useEffect(() => {
-    const savedUser = localStorage.getItem('eln-user');
-    if (savedUser) {
+    let cancelled = false;
+
+    const restoreSession = async () => {
+      const savedUser = localStorage.getItem('eln-user');
+      if (!savedUser) return;
+
       try {
-        const parsed = JSON.parse(savedUser);
-        setUser(parsed);
+        const parsed = JSON.parse(savedUser) as AuthUser;
+        if (!parsed?.id) {
+          localStorage.removeItem('eln-user');
+          return;
+        }
+
+        // Validate the stored user against the server. This prevents "silent failures"
+        // after resetting/initializing the database (stale localStorage user IDs).
+        const res = await fetch(`${API_BASE}/api/auth/me`, {
+          headers: { 'x-user-id': parsed.id }
+        });
+
+        if (!res.ok) {
+          localStorage.removeItem('eln-user');
+          return;
+        }
+
+        const freshUser = (await res.json()) as AuthUser;
+        if (cancelled) return;
+
+        localStorage.setItem('eln-user', JSON.stringify(freshUser));
+        setUser(freshUser);
         setAuthState('authenticated');
       } catch {
         localStorage.removeItem('eln-user');
       }
-    }
-    setLoading(false);
+    };
+
+    restoreSession().finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Fetch data when authenticated
@@ -52,6 +83,15 @@ function App() {
         fetch(`${API_BASE}/methods`, { headers }),
         fetch(`${API_BASE}/experiments`, { headers }),
       ]);
+
+      if ([methodsRes, experimentsRes].some(r => r.status === 401 || r.status === 403)) {
+        localStorage.removeItem('eln-user');
+        setUser(null);
+        setAuthState('login');
+        setMethods([]);
+        setExperiments([]);
+        return;
+      }
 
       if (methodsRes.ok) {
         const data = await methodsRes.json();
@@ -541,9 +581,11 @@ function ExperimentForm({ user, methods, onClose, onSaved }: {
   const [protocolRef, setProtocolRef] = useState('');
   const [observations, setObservations] = useState('');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     setSaving(true);
 
     try {
@@ -563,10 +605,15 @@ function ExperimentForm({ user, methods, onClose, onSaved }: {
         }),
       });
 
-      if (response.ok) {
-        onSaved();
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.error || 'Failed to save experiment');
       }
+
+      onSaved();
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save experiment';
+      setError(message);
       console.error('Failed to save experiment:', error);
     } finally {
       setSaving(false);
@@ -580,6 +627,11 @@ function ExperimentForm({ user, methods, onClose, onSaved }: {
           <h3>New Experiment</h3>
           <button onClick={onClose} style={styles.closeButton}>×</button>
         </div>
+        {error && (
+          <div style={{ ...styles.alert, ...styles.alertError }}>
+            {error}
+          </div>
+        )}
         <form onSubmit={handleSubmit} style={styles.form}>
           <div style={styles.formRow}>
             <div style={styles.formField}>
@@ -2568,6 +2620,18 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     padding: '20px 24px',
     borderBottom: '1px solid #e2e8f0',
+  },
+  alert: {
+    margin: '16px 24px 0',
+    padding: '10px 12px',
+    borderRadius: 10,
+    fontSize: 13,
+    lineHeight: 1.4,
+  },
+  alertError: {
+    background: '#fef2f2',
+    border: '1px solid #fecaca',
+    color: '#991b1b',
   },
   closeButton: {
     width: 32,
