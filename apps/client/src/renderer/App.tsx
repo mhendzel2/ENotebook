@@ -255,6 +255,19 @@ function MethodsPanel({ methods, onRefresh, user }: { methods: Method[]; onRefre
   const [selectedMethod, setSelectedMethod] = useState<Method | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'view' | 'edit'>('list');
 
+  const stepsToText = (stepsValue: unknown): string => {
+    if (typeof stepsValue === 'string') return stepsValue;
+    if (stepsValue && typeof stepsValue === 'object') {
+      const asAny = stepsValue as any;
+      if (typeof asAny.text === 'string') return asAny.text;
+    }
+    try {
+      return JSON.stringify(stepsValue, null, 2);
+    } catch {
+      return '';
+    }
+  };
+
   const handleView = (method: Method) => {
     setSelectedMethod(method);
     setViewMode('view');
@@ -271,6 +284,7 @@ function MethodsPanel({ methods, onRefresh, user }: { methods: Method[]; onRefre
   };
 
   if (viewMode === 'view' && selectedMethod) {
+    const stepsText = stepsToText((selectedMethod as any).steps);
     return (
       <div style={styles.panel}>
         <div style={styles.header}>
@@ -282,8 +296,25 @@ function MethodsPanel({ methods, onRefresh, user }: { methods: Method[]; onRefre
           <p><strong>Version:</strong> v{selectedMethod.version}</p>
           <p><strong>Last Updated:</strong> {new Date(selectedMethod.updatedAt).toLocaleString()}</p>
           <h4>Steps:</h4>
-          <pre style={styles.codeBlock}>{typeof selectedMethod.steps === 'string' ? selectedMethod.steps : JSON.stringify(selectedMethod.steps, null, 2)}</pre>
+          <div style={{ ...styles.codeBlock, whiteSpace: 'pre-wrap' }}>{stepsText}</div>
         </div>
+      </div>
+    );
+  }
+
+  if (viewMode === 'edit' && selectedMethod) {
+    return (
+      <div style={styles.panel}>
+        <div style={styles.header}>
+          <button onClick={handleBack} style={styles.secondaryButton}>← Back</button>
+          <h2 style={styles.pageTitle}>Edit Method</h2>
+        </div>
+        <MethodForm
+          user={user}
+          initialMethod={selectedMethod}
+          onClose={handleBack}
+          onSaved={() => { handleBack(); onRefresh(); }}
+        />
       </div>
     );
   }
@@ -303,6 +334,7 @@ function MethodsPanel({ methods, onRefresh, user }: { methods: Method[]; onRefre
       {showForm && (
         <MethodForm 
           user={user} 
+          initialMethod={null}
           onClose={() => setShowForm(false)} 
           onSaved={() => { setShowForm(false); onRefresh(); }} 
         />
@@ -345,19 +377,33 @@ function MethodsPanel({ methods, onRefresh, user }: { methods: Method[]; onRefre
 }
 
 // Method Form
-function MethodForm({ user, onClose, onSaved }: { user: AuthUser; onClose: () => void; onSaved: () => void }) {
-  const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('');
-  const [steps, setSteps] = useState('');
+function MethodForm({ user, initialMethod, onClose, onSaved }: { user: AuthUser; initialMethod: Method | null; onClose: () => void; onSaved: () => void }) {
+  const stepsToText = (stepsValue: unknown): string => {
+    if (typeof stepsValue === 'string') return stepsValue;
+    if (stepsValue && typeof stepsValue === 'object') {
+      const asAny = stepsValue as any;
+      if (typeof asAny.text === 'string') return asAny.text;
+    }
+    return '';
+  };
+
+  const normalizeNewlines = (value: string) => value.replace(/\r\n/g, '\n');
+
+  const [title, setTitle] = useState(initialMethod?.title || '');
+  const [category, setCategory] = useState(initialMethod?.category || '');
+  const [steps, setSteps] = useState(normalizeNewlines(stepsToText((initialMethod as any)?.steps)) || '');
   const [saving, setSaving] = useState(false);
+
+  const isEdit = Boolean(initialMethod?.id);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
 
     try {
-      const response = await fetch(`${API_BASE}/methods`, {
-        method: 'POST',
+      const url = isEdit ? `${API_BASE}/methods/${initialMethod!.id}` : `${API_BASE}/methods`;
+      const response = await fetch(url, {
+        method: isEdit ? 'PATCH' : 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-user-id': user.id,
@@ -365,12 +411,15 @@ function MethodForm({ user, onClose, onSaved }: { user: AuthUser; onClose: () =>
         body: JSON.stringify({
           title,
           category,
-          steps: { text: steps },
+          steps: { text: normalizeNewlines(steps) },
         }),
       });
 
       if (response.ok) {
         onSaved();
+      } else {
+        const body = await response.text().catch(() => '');
+        console.error('Failed to save method:', response.status, body);
       }
     } catch (error) {
       console.error('Failed to save method:', error);
@@ -383,7 +432,7 @@ function MethodForm({ user, onClose, onSaved }: { user: AuthUser; onClose: () =>
     <div style={styles.formOverlay}>
       <div style={styles.formCard}>
         <div style={styles.formHeader}>
-          <h3>New Method</h3>
+          <h3>{isEdit ? 'Edit Method' : 'New Method'}</h3>
           <button onClick={onClose} style={styles.closeButton}>×</button>
         </div>
         <form onSubmit={handleSubmit} style={styles.form}>
@@ -410,7 +459,7 @@ function MethodForm({ user, onClose, onSaved }: { user: AuthUser; onClose: () =>
             <label style={styles.formLabel}>Steps</label>
             <textarea
               value={steps}
-              onChange={e => setSteps(e.target.value)}
+              onChange={e => setSteps(normalizeNewlines(e.target.value))}
               style={styles.formTextarea}
               rows={6}
               placeholder="Describe the protocol steps..."
@@ -419,7 +468,7 @@ function MethodForm({ user, onClose, onSaved }: { user: AuthUser; onClose: () =>
           <div style={styles.formActions}>
             <button type="button" onClick={onClose} style={styles.secondaryButton}>Cancel</button>
             <button type="submit" style={styles.primaryButton} disabled={saving}>
-              {saving ? 'Saving...' : 'Save Method'}
+              {saving ? 'Saving...' : (isEdit ? 'Save Changes' : 'Save Method')}
             </button>
           </div>
         </form>
