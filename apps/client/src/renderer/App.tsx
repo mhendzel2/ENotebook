@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { MODALITIES, INVENTORY_CATEGORIES, getInventoryCategorySchema, Modality, Method, Experiment, InventoryItem, Stock, Location as InventoryLocation, Attachment, Report } from '@eln/shared';
 import { v4 as uuid } from 'uuid';
 import { LoginPage, CreateAccountPage, AuthUser } from './components/Auth';
@@ -391,6 +391,19 @@ function MethodForm({ user, initialMethod, onClose, onSaved }: { user: AuthUser;
   const [steps, setSteps] = useState(normalizeNewlines(stepsToText((initialMethod as any)?.steps)) || '');
   const [saving, setSaving] = useState(false);
 
+  const stepsRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const autoResizeSteps = useCallback(() => {
+    const el = stepsRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
+
+  useEffect(() => {
+    autoResizeSteps();
+  }, [steps, autoResizeSteps]);
+
   const isEdit = Boolean(initialMethod?.id);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -455,8 +468,10 @@ function MethodForm({ user, initialMethod, onClose, onSaved }: { user: AuthUser;
           <div style={styles.formField}>
             <label style={styles.formLabel}>Steps</label>
             <textarea
+              ref={stepsRef}
               value={steps}
               onChange={e => setSteps(normalizeNewlines(e.target.value))}
+              onInput={autoResizeSteps}
               style={styles.formTextarea}
               rows={6}
               placeholder="Describe the protocol steps..."
