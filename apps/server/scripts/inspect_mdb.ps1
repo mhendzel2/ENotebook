@@ -1,7 +1,7 @@
 $conn = New-Object -ComObject ADODB.Connection
 $conn.Open("Provider=Microsoft.ACE.OLEDB.12.0;Data Source=C:\Users\Room3341\Desktop\MHLabmanagement2023N.mdb;Persist Security Info=False;")
 
-$tablesToInspect = @("tblExp", "tblExpStorage", "tblbox", "tblCLSignOut", "tblCLSignOutnew", "tblCLSignOutSheet", "tblPrint")
+$tablesToInspect = @("tblStorage", "tblDNAStorage", "tblCMStorage", "tblCLStorage", "tblOligoStorage", "tblMRStorage", "tblMItemsStorage", "tblAntibody", "tblChemical", "tblDNA", "tblCellline")
 
 foreach ($tbl in $tablesToInspect) {
     try {

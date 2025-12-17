@@ -1085,6 +1085,280 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
   );
 }
 
+// Item Detail View Component - displays all imported properties in a read-only format
+type ItemDetailViewProps = {
+  item: InventoryItem & { stocks?: (Stock & { location?: InventoryLocation | null })[] };
+  formatCategory: (c: string) => string;
+  totalQuantity: (item: InventoryItem & { stocks?: Stock[] }) => number;
+  onClose: () => void;
+  onEdit: () => void;
+};
+
+function ItemDetailView({ item, formatCategory, totalQuantity, onClose, onEdit }: ItemDetailViewProps) {
+  const props = (item.properties || {}) as Record<string, any>;
+
+  // Render a field row
+  const Field = ({ label, value }: { label: string; value: any }) => {
+    if (value === undefined || value === null || value === '') return null;
+    return (
+      <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+        <span style={{ fontWeight: 500, minWidth: 140, color: '#6b7280' }}>{label}:</span>
+        <span style={{ wordBreak: 'break-word' }}>{String(value)}</span>
+      </div>
+    );
+  };
+
+  // Render dilutions table for antibodies
+  const renderDilutions = () => {
+    const dils = props.dilutions;
+    if (!dils || typeof dils !== 'object') return null;
+    const entries = Object.entries(dils).filter(([_, v]) => v);
+    if (entries.length === 0) return null;
+    return (
+      <div style={{ marginTop: 12 }}>
+        <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#374151' }}>Recommended Dilutions</h4>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 8 }}>
+          {entries.map(([key, val]) => (
+            <div key={key} style={{ background: '#f3f4f6', padding: '6px 10px', borderRadius: 6 }}>
+              <span style={{ fontWeight: 600, fontSize: 11, color: '#6b7280' }}>{key}</span>
+              <div style={{ fontSize: 13 }}>{String(val)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // Render modifications for primers/oligos
+  const renderModifications = () => {
+    const mods = props.modifications;
+    if (!mods || typeof mods !== 'object') return null;
+    const entries = Object.entries(mods).filter(([_, v]) => v);
+    if (entries.length === 0) return null;
+    return (
+      <div style={{ marginTop: 8 }}>
+        <span style={{ fontWeight: 500, color: '#6b7280' }}>Modifications:</span>
+        {entries.map(([key, val]) => (
+          <span key={key} style={{ marginLeft: 8, background: '#e5e7eb', padding: '2px 6px', borderRadius: 4, fontSize: 12 }}>
+            {key}: {String(val)}
+          </span>
+        ))}
+      </div>
+    );
+  };
+
+  // Render stock information
+  const renderStocks = () => {
+    const stocks = item.stocks || [];
+    if (stocks.length === 0) return <p style={{ opacity: 0.6, fontStyle: 'italic' }}>No stock entries</p>;
+    return (
+      <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+        {stocks.map((s, idx) => (
+          <div key={s.id || idx} style={{ background: '#f9fafb', padding: '8px 12px', borderRadius: 6, border: '1px solid #e5e7eb' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 600 }}>{s.quantity}{item.unit ? ` ${item.unit}` : ''}</span>
+              <span style={{ fontSize: 12, color: '#6b7280' }}>{s.location?.name || 'No location'}</span>
+            </div>
+            {s.lotNumber && <div style={{ fontSize: 12, color: '#6b7280' }}>Lot: {s.lotNumber}</div>}
+            {s.barcode && <div style={{ fontSize: 12, color: '#6b7280' }}>Barcode: {s.barcode}</div>}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ ...styles.detailCard, maxHeight: '70vh', overflowY: 'auto' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+        <div>
+          <h3 style={{ ...styles.sectionTitle, marginBottom: 4 }}>{item.name}</h3>
+          <span style={{ fontSize: 13, color: '#6b7280' }}>
+            {formatCategory(item.category)} • Total: {totalQuantity(item)}{item.unit ? ` ${item.unit}` : ''}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button style={styles.secondaryButton} onClick={onEdit}>Edit</button>
+          <button style={styles.secondaryButton} onClick={onClose}>Close</button>
+        </div>
+      </div>
+
+      {/* Basic Info */}
+      <div style={{ marginBottom: 16 }}>
+        <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: 4 }}>Basic Information</h4>
+        <Field label="Catalog #" value={item.catalogNumber} />
+        <Field label="Manufacturer" value={item.manufacturer} />
+        <Field label="Supplier" value={item.supplier} />
+        <Field label="Unit" value={item.unit} />
+        <Field label="Description" value={item.description} />
+      </div>
+
+      {/* Category-specific fields */}
+      {item.category === 'antibody' && (
+        <div style={{ marginBottom: 16 }}>
+          <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: 4 }}>Antibody Details</h4>
+          <Field label="Target Antigen" value={props.target} />
+          <Field label="Host Species" value={props.host} />
+          <Field label="Clonality" value={props.clonality} />
+          <Field label="Isotype" value={props.isotype} />
+          <Field label="Conjugate/Label" value={props.conjugate} />
+          <Field label="Concentration" value={props.concentration} />
+          <Field label="Lot Number" value={props.lotNumber} />
+          <Field label="Purity" value={props.purity} />
+          <Field label="Cross-Reactivity" value={props.crossReactivity} />
+          <Field label="Reference" value={props.reference} />
+          <Field label="Investigator" value={props.investigator} />
+          {renderDilutions()}
+        </div>
+      )}
+
+      {item.category === 'plasmid' && (
+        <div style={{ marginBottom: 16 }}>
+          <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: 4 }}>Plasmid Details</h4>
+          <Field label="Backbone" value={props.backbone} />
+          <Field label="Size" value={props.size} />
+          <Field label="Insert" value={props.insert} />
+          <Field label="Insert Origin" value={props.insertOrigin} />
+          <Field label="Promoter" value={props.promoter} />
+          <Field label="Promoter Origin" value={props.promoterOrigin} />
+          <Field label="Selection Marker" value={props.selectionMarker} />
+          <Field label="Coding Sequence" value={props.codingSequence} />
+          <Field label="Concentration" value={props.concentration} />
+          <Field label="Purity" value={props.purity} />
+          <Field label="Biosafety Level" value={props.biosafety} />
+          <Field label="Sequence Date" value={props.sequenceDate} />
+          <Field label="Sequence File" value={props.sequenceFile} />
+          <Field label="Map File" value={props.mapFile} />
+          <Field label="Oligos Used" value={props.oligosUsed} />
+          <Field label="Lot Number" value={props.lotNumber} />
+          <Field label="Construction Method" value={props.constructionMethod} />
+          <Field label="Reference" value={props.reference} />
+          <Field label="Info" value={props.info} />
+          <Field label="Investigator" value={props.investigator} />
+          {props.sequence && (
+            <div style={{ marginTop: 8 }}>
+              <span style={{ fontWeight: 500, color: '#6b7280' }}>Sequence:</span>
+              <pre style={{ background: '#f3f4f6', padding: 8, borderRadius: 4, fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 100, overflow: 'auto' }}>
+                {props.sequence}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+
+      {item.category === 'cell_line' && (
+        <div style={{ marginBottom: 16 }}>
+          <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: 4 }}>Cell Line Details</h4>
+          <Field label="Organism" value={props.organism} />
+          <Field label="Tissue Origin" value={props.tissue} />
+          <Field label="Cell Type" value={props.cellType} />
+          <Field label="Morphology" value={props.morphology} />
+          <Field label="Culture Medium" value={props.medium} />
+          <Field label="Supplements" value={props.supplements} />
+          <Field label="Serum" value={props.serumRequirement} />
+          <Field label="Passage Number" value={props.passageNumber} />
+          <Field label="Parental Cell" value={props.parentalCell} />
+          <Field label="Growth Conditions" value={props.growthCondition} />
+          <Field label="Obtained From" value={props.obtainedFrom} />
+          <Field label="Accession Number" value={props.accessionNumber} />
+          <Field label="Transfected Plasmids" value={props.plasmids} />
+          <Field label="Selection Markers" value={props.selectionMarkers} />
+          <Field label="Biosafety Level" value={props.biosafety} />
+          <Field label="Reference" value={props.reference} />
+          <Field label="Investigator" value={props.investigator} />
+          <Field label="Notes" value={props.notes} />
+        </div>
+      )}
+
+      {item.category === 'primer' && (
+        <div style={{ marginBottom: 16 }}>
+          <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: 4 }}>Primer Details</h4>
+          <Field label="Target Gene" value={props.targetGene} />
+          <Field label="Length" value={props.length ? `${props.length} bp` : undefined} />
+          <Field label="Tm" value={props.tm ? `${props.tm}°C` : undefined} />
+          <Field label="GC Content" value={props.gcContent ? `${props.gcContent}%` : undefined} />
+          <Field label="Alternate Name" value={props.alternateName} />
+          <Field label="Scale" value={props.scale} />
+          <Field label="Purification" value={props.purification} />
+          {renderModifications()}
+          {props.sequence && (
+            <div style={{ marginTop: 8 }}>
+              <span style={{ fontWeight: 500, color: '#6b7280' }}>Sequence (5′→3′):</span>
+              <pre style={{ background: '#f3f4f6', padding: 8, borderRadius: 4, fontSize: 12, fontFamily: 'monospace', letterSpacing: 1 }}>
+                {props.sequence}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+
+      {item.category === 'reagent' && (
+        <div style={{ marginBottom: 16 }}>
+          <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: 4 }}>Reagent Details</h4>
+          <Field label="Reagent Type" value={props.itemType} />
+          <Field label="Stock Concentration" value={props.stockConcentration || props.concentration} />
+          <Field label="Working Concentration" value={props.workingConcentration} />
+          <Field label="Molecular Weight" value={props.molecularWeight} />
+          <Field label="CAS Number" value={props.casNo} />
+          <Field label="Lot Number" value={props.lotNumber} />
+          <Field label="Amount" value={props.amount} />
+          <Field label="Activity/Function" value={props.activity} />
+          <Field label="Inhibitor Type" value={props.inhibitor} />
+          <Field label="Components" value={props.components} />
+          <Field label="Working Buffer" value={props.workBuffer} />
+          <Field label="Purchase Date" value={props.purchaseDate} />
+          <Field label="Date Opened" value={props.dateOpened} />
+          <Field label="Expiration Date" value={props.expirationDate} />
+          <Field label="MSDS Date" value={props.msdsDate} />
+          <Field label="Alternate Names" value={props.alternateNames} />
+          <Field label="Reference" value={props.reference} />
+          <Field label="Path / Link" value={props.path} />
+          <Field label="Hazards" value={props.hazards} />
+          <Field label="Safety Caution" value={props.caution} />
+          <Field label="Comments" value={props.comments} />
+          <Field label="Notes" value={props.notes} />
+        </div>
+      )}
+
+      {item.category === 'sample' && (
+        <div style={{ marginBottom: 16 }}>
+          <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: 4 }}>Sample Details</h4>
+          <Field label="Backbone" value={props.backbone} />
+          <Field label="Helper Virus" value={props.helperVirus} />
+          <Field label="Promoter" value={props.promoter} />
+          <Field label="Coding Sequence" value={props.codingSequence} />
+          <Field label="PFU" value={props.pfu} />
+          <Field label="Particles" value={props.particles} />
+          <Field label="Purity" value={props.purity} />
+          <Field label="Source Plaque" value={props.sourcePlaque} />
+          <Field label="Oligos Used" value={props.oligosUsed} />
+          <Field label="Sequence Date" value={props.sequenceDate} />
+          <Field label="Sequence File" value={props.sequenceFile} />
+          <Field label="Virus Map" value={props.virusMap} />
+          <Field label="Reference" value={props.reference} />
+          <Field label="Lot Number" value={props.lotNumber} />
+          <Field label="Investigator" value={props.investigator} />
+        </div>
+      )}
+
+      {/* Legacy/Import Info */}
+      {props.source === 'access' && (
+        <div style={{ marginBottom: 16 }}>
+          <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: 4 }}>Import Info</h4>
+          <Field label="Source" value="Microsoft Access" />
+          <Field label="Legacy ID" value={props.legacyId} />
+          <Field label="Legacy Table" value={props.legacyTable} />
+        </div>
+      )}
+
+      {/* Stock Information */}
+      <div style={{ marginBottom: 16 }}>
+        <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: 4 }}>Stock ({totalQuantity(item)}{item.unit ? ` ${item.unit}` : ''})</h4>
+        {renderStocks()}
+      </div>
+    </div>
+  );
+}
+
 // Inventory Panel (Placeholder)
 function InventoryPanel({ user }: { user: AuthUser }) {
   type StockWithLocation = Stock & { location?: InventoryLocation | null };
@@ -1139,6 +1413,7 @@ function InventoryPanel({ user }: { user: AuthUser }) {
   const [detailsSupplier, setDetailsSupplier] = useState('');
   const [detailsUnit, setDetailsUnit] = useState('');
   const [detailsDescription, setDetailsDescription] = useState('');
+  const [viewItem, setViewItem] = useState<ItemWithStocks | null>(null);
 
   const fetchInventory = useCallback(async () => {
     setLoading(true);
@@ -1526,6 +1801,25 @@ function InventoryPanel({ user }: { user: AuthUser }) {
         </div>
       )}
 
+      {viewItem && (
+        <ItemDetailView
+          item={viewItem}
+          formatCategory={formatCategory}
+          totalQuantity={totalQuantity}
+          onClose={() => setViewItem(null)}
+          onEdit={() => {
+            setDetailsItem(viewItem);
+            setDetailsProperties((viewItem.properties as any) || {});
+            setDetailsCatalogNumber(viewItem.catalogNumber || '');
+            setDetailsManufacturer(viewItem.manufacturer || '');
+            setDetailsSupplier(viewItem.supplier || '');
+            setDetailsUnit(viewItem.unit || '');
+            setDetailsDescription(viewItem.description || '');
+            setViewItem(null);
+          }}
+        />
+      )}
+
       {detailsItem && (
         <div style={styles.detailCard}>
           <h3 style={styles.sectionTitle}>Item Details</h3>
@@ -1597,47 +1891,78 @@ function InventoryPanel({ user }: { user: AuthUser }) {
           // Build extra info based on category
           const extraInfo: string[] = [];
           if (item.category === 'antibody') {
+            if (props.target) extraInfo.push(`Target: ${props.target}`);
             if (props.host) extraInfo.push(`Host: ${props.host}`);
             if (props.clonality) extraInfo.push(`${props.clonality}`);
-            if (props.dilutions?.WB) extraInfo.push(`WB: ${props.dilutions.WB}`);
+            if (props.conjugate) extraInfo.push(`Label: ${props.conjugate}`);
+            // Build dilutions string
+            const dils: string[] = [];
+            if (props.dilutions?.WB) dils.push(`WB: ${props.dilutions.WB}`);
+            if (props.dilutions?.IF) dils.push(`IF: ${props.dilutions.IF}`);
+            if (props.dilutions?.FACS) dils.push(`FACS: ${props.dilutions.FACS}`);
+            if (dils.length > 0) extraInfo.push(dils.join(', '));
           } else if (item.category === 'cell_line') {
             if (props.organism) extraInfo.push(`Species: ${props.organism}`);
+            if (props.tissue) extraInfo.push(`Tissue: ${props.tissue}`);
             if (props.medium) extraInfo.push(`Medium: ${props.medium}`);
+            if (props.passageNumber) extraInfo.push(`Passage: ${props.passageNumber}`);
           } else if (item.category === 'plasmid') {
             if (props.backbone) extraInfo.push(`Backbone: ${props.backbone}`);
             if (props.selectionMarker) extraInfo.push(`Resistance: ${props.selectionMarker}`);
+            if (props.promoter) extraInfo.push(`Promoter: ${props.promoter}`);
+            if (props.insert) extraInfo.push(`Insert: ${props.insert}`);
+            if (props.size) extraInfo.push(`Size: ${props.size}`);
           } else if (item.category === 'primer') {
             if (props.sequence) extraInfo.push(`Seq: ${String(props.sequence).substring(0, 20)}${String(props.sequence).length > 20 ? '...' : ''}`);
             if (props.tm) extraInfo.push(`Tm: ${props.tm}`);
+            if (props.length) extraInfo.push(`Length: ${props.length}bp`);
           } else if (item.category === 'reagent') {
-            if (props.stockConcentration) extraInfo.push(`Stock: ${props.stockConcentration}`);
+            if (props.stockConcentration || props.concentration) extraInfo.push(`Stock: ${props.stockConcentration || props.concentration}`);
             if (props.lotNumber) extraInfo.push(`Lot: ${props.lotNumber}`);
             if (props.purchaseDate) extraInfo.push(`Purchased: ${props.purchaseDate}`);
             if (props.casNo) extraInfo.push(`CAS: ${props.casNo}`);
+          } else if (item.category === 'sample') {
+            // Virus or other samples
+            if (props.backbone) extraInfo.push(`Backbone: ${props.backbone}`);
+            if (props.promoter) extraInfo.push(`Promoter: ${props.promoter}`);
+            if (props.pfu) extraInfo.push(`PFU: ${props.pfu}`);
+            if (props.particles) extraInfo.push(`Particles: ${props.particles}`);
+          }
+          // Show legacy source if present
+          if (props.source === 'access' && props.legacyId) {
+            extraInfo.push(`Legacy ID: ${props.legacyId}`);
           }
           
           return (
             <div key={item.id} style={styles.listItem}>
-              <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
                 <span style={styles.listItemTitle}>{item.name}</span>
                 <span style={styles.listItemMeta}>
                   {formatCategory(item.category)}{item.catalogNumber ? ` • Cat#: ${item.catalogNumber}` : ''}{item.manufacturer ? ` • ${item.manufacturer}` : ''}
                 </span>
                 {extraInfo.length > 0 && (
-                  <span style={{ ...styles.listItemMeta, fontSize: 11, marginTop: 2, opacity: 0.7 }}>
+                  <span style={{ ...styles.listItemMeta, fontSize: 11, marginTop: 2, opacity: 0.7, wordBreak: 'break-word' }}>
                     {extraInfo.join(' | ')}
                   </span>
                 )}
                 {item.description && (
-                  <span style={{ ...styles.listItemMeta, fontSize: 11, marginTop: 2, fontStyle: 'italic', opacity: 0.6 }}>
+                  <span style={{ ...styles.listItemMeta, fontSize: 11, marginTop: 2, fontStyle: 'italic', opacity: 0.6, wordBreak: 'break-word' }}>
                     {item.description.length > 100 ? item.description.substring(0, 100) + '...' : item.description}
                   </span>
                 )}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
                 <span style={{ fontWeight: 600 }}>
                   {totalQuantity(item)}{item.unit ? ` ${item.unit}` : ''}
                 </span>
+                <button
+                  style={styles.secondaryButton}
+                  onClick={() => {
+                    setViewItem(item);
+                  }}
+                >
+                  View
+                </button>
                 <button
                   style={styles.secondaryButton}
                   onClick={() => {
@@ -1650,7 +1975,7 @@ function InventoryPanel({ user }: { user: AuthUser }) {
                     setDetailsDescription(item.description || '');
                   }}
                 >
-                  Edit Details
+                  Edit
                 </button>
                 <button style={styles.secondaryButton} onClick={() => setStockItemId(item.id)}>Add Stock</button>
               </div>
