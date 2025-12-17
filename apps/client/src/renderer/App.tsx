@@ -252,8 +252,9 @@ function DashboardPanel({ methods, experiments, user, onNavigate }: { methods: M
 // Methods Panel
 function MethodsPanel({ methods, onRefresh, user }: { methods: Method[]; onRefresh: () => void; user: AuthUser }) {
   const [showForm, setShowForm] = useState(false);
+  const [editingMethod, setEditingMethod] = useState<Method | null>(null);
   const [selectedMethod, setSelectedMethod] = useState<Method | null>(null);
-  const [viewMode, setViewMode] = useState<'list' | 'view' | 'edit'>('list');
+  const [viewMode, setViewMode] = useState<'list' | 'view'>('list');
 
   const stepsToText = (stepsValue: unknown): string => {
     if (typeof stepsValue === 'string') return stepsValue;
@@ -274,8 +275,8 @@ function MethodsPanel({ methods, onRefresh, user }: { methods: Method[]; onRefre
   };
 
   const handleEdit = (method: Method) => {
-    setSelectedMethod(method);
-    setViewMode('edit');
+    setEditingMethod(method);
+    setShowForm(true);
   };
 
   const handleBack = () => {
@@ -302,23 +303,6 @@ function MethodsPanel({ methods, onRefresh, user }: { methods: Method[]; onRefre
     );
   }
 
-  if (viewMode === 'edit' && selectedMethod) {
-    return (
-      <div style={styles.panel}>
-        <div style={styles.header}>
-          <button onClick={handleBack} style={styles.secondaryButton}>← Back</button>
-          <h2 style={styles.pageTitle}>Edit Method</h2>
-        </div>
-        <MethodForm
-          user={user}
-          initialMethod={selectedMethod}
-          onClose={handleBack}
-          onSaved={() => { handleBack(); onRefresh(); }}
-        />
-      </div>
-    );
-  }
-
   return (
     <div style={styles.panel}>
       <div style={styles.header}>
@@ -326,7 +310,13 @@ function MethodsPanel({ methods, onRefresh, user }: { methods: Method[]; onRefre
           <h2 style={styles.pageTitle}>Methods Library</h2>
           <p style={styles.pageSubtitle}>Reusable protocols and procedures</p>
         </div>
-        <button onClick={() => setShowForm(true)} style={styles.primaryButton}>
+        <button
+          onClick={() => {
+            setEditingMethod(null);
+            setShowForm(true);
+          }}
+          style={styles.primaryButton}
+        >
           + New Method
         </button>
       </div>
@@ -334,9 +324,16 @@ function MethodsPanel({ methods, onRefresh, user }: { methods: Method[]; onRefre
       {showForm && (
         <MethodForm 
           user={user} 
-          initialMethod={null}
-          onClose={() => setShowForm(false)} 
-          onSaved={() => { setShowForm(false); onRefresh(); }} 
+          initialMethod={editingMethod}
+          onClose={() => {
+            setShowForm(false);
+            setEditingMethod(null);
+          }}
+          onSaved={() => {
+            setShowForm(false);
+            setEditingMethod(null);
+            onRefresh();
+          }} 
         />
       )}
 
