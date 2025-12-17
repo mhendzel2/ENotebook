@@ -502,7 +502,11 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
     if (!parse.success) return res.status(400).json({ error: parse.error.flatten() });
 
     if (user?.role !== 'admin' && user?.role !== 'manager') {
-      return res.status(403).json({ error: 'Not authorized' });
+      return res.status(403).json({
+        error: 'Not authorized',
+        requiredRoles: ['admin', 'manager'],
+        hint: 'Log in as an admin or manager to import inventory.'
+      });
     }
 
     const { filename, data } = parse.data;
@@ -654,7 +658,11 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
     if (!parse.success) return res.status(400).json({ error: parse.error.flatten() });
 
     if (user?.role !== 'admin' && user?.role !== 'manager') {
-      return res.status(403).json({ error: 'Not authorized' });
+      return res.status(403).json({
+        error: 'Not authorized',
+        requiredRoles: ['admin', 'manager'],
+        hint: 'Log in as an admin or manager to import inventory.'
+      });
     }
 
     const { filename, data, options } = parse.data;

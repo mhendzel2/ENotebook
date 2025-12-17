@@ -1327,7 +1327,13 @@ function InventoryPanel({ user }: { user: AuthUser }) {
         body: JSON.stringify({ filename: file.name, data: base64 })
       });
       const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload?.error || 'CSV import failed');
+      if (!res.ok) {
+        const errorText = typeof payload?.error === 'string' ? payload.error : (payload?.error ? JSON.stringify(payload.error) : 'CSV import failed');
+        if (res.status === 403 && (errorText === 'Not authorized' || errorText.toLowerCase().includes('not authorized'))) {
+          throw new Error('Not authorized: CSV import requires a manager or admin account.');
+        }
+        throw new Error(errorText || 'CSV import failed');
+      }
       setMessage(`Imported CSV: ${payload.itemsCreated} created, ${payload.itemsUpdated} updated, ${payload.stocksCreated} stocks`);
       await fetchInventory();
       await fetchLocations();
@@ -1355,7 +1361,13 @@ function InventoryPanel({ user }: { user: AuthUser }) {
         body: JSON.stringify({ filename: file.name, data: base64, options: { table: accessTable || 'Inventory', mapping } })
       });
       const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload?.error || 'Access import failed');
+      if (!res.ok) {
+        const errorText = typeof payload?.error === 'string' ? payload.error : (payload?.error ? JSON.stringify(payload.error) : 'Access import failed');
+        if (res.status === 403 && (errorText === 'Not authorized' || errorText.toLowerCase().includes('not authorized'))) {
+          throw new Error('Not authorized: Access import requires a manager or admin account.');
+        }
+        throw new Error(errorText || 'Access import failed');
+      }
       setMessage(`Imported Access: ${payload.itemsCreated} created, ${payload.itemsUpdated} updated, ${payload.stocksCreated} stocks`);
       await fetchInventory();
       await fetchLocations();
