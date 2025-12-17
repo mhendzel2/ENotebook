@@ -297,7 +297,7 @@ function MethodsPanel({ methods, onRefresh, user }: { methods: Method[]; onRefre
           <p><strong>Version:</strong> v{selectedMethod.version}</p>
           <p><strong>Last Updated:</strong> {new Date(selectedMethod.updatedAt).toLocaleString()}</p>
           <h4>Steps:</h4>
-          <div style={{ ...styles.codeBlock, whiteSpace: 'pre-wrap' }}>{stepsText}</div>
+          <div style={styles.methodSteps}>{stepsText}</div>
         </div>
       </div>
     );
@@ -2870,6 +2870,13 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'monospace',
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
+  },
+  methodSteps: {
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+    lineHeight: 1.5,
+    fontSize: 14,
+    color: '#0f172a',
   },
 };
 
