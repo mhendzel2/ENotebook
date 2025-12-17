@@ -149,7 +149,14 @@ cd apps\server
 
 echo Updating Prisma schema for PostgreSQL...
 powershell -Command "(Get-Content prisma\schema.prisma) -replace 'provider = \"sqlite\"', 'provider = \"postgresql\"' | Set-Content prisma\schema.prisma"
-set DATABASE_URL=postgresql://%DB_USER%:%DB_PASSWORD%@%DB_HOST%:%DB_PORT%/%DB_NAME%?schema=public
+
+:: URL-encode username/password for Prisma connection URL (handles reserved characters like #, @, :, /, ?)
+set "RAW_DB_USER=%DB_USER%"
+set "RAW_DB_PASSWORD=%DB_PASSWORD%"
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "[uri]::EscapeDataString($env:RAW_DB_USER)"`) do set "DB_USER_ESC=%%i"
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "[uri]::EscapeDataString($env:RAW_DB_PASSWORD)"`) do set "DB_PASSWORD_ESC=%%i"
+
+set DATABASE_URL=postgresql://%DB_USER_ESC%:%DB_PASSWORD_ESC%@%DB_HOST%:%DB_PORT%/%DB_NAME%?schema=public
 
 :: Create .env file
 echo Creating .env configuration file...
@@ -219,7 +226,7 @@ if /i "%DB_READY%"=="n" (
 call npx prisma migrate deploy
 if %ERRORLEVEL% neq 0 (
     echo [INFO] No existing migrations found. Pushing schema...
-    call npx prisma db push
+    call npx prisma db push --skip-generate
     if %ERRORLEVEL% neq 0 (
         echo [ERROR] Failed to setup database schema.
         echo Please check your database connection settings.

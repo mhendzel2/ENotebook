@@ -3,6 +3,9 @@ import React, { useState } from 'react';
 interface LoginPageProps {
   onLogin: (user: AuthUser) => void;
   onCreateAccount: () => void;
+  existingUser?: AuthUser;
+  onContinueExistingUser?: () => void;
+  onSwitchUser?: () => void;
 }
 
 export interface AuthUser {
@@ -13,7 +16,7 @@ export interface AuthUser {
   token?: string;
 }
 
-export function LoginPage({ onLogin, onCreateAccount }: LoginPageProps) {
+export function LoginPage({ onLogin, onCreateAccount, existingUser, onContinueExistingUser, onSwitchUser }: LoginPageProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +59,31 @@ export function LoginPage({ onLogin, onCreateAccount }: LoginPageProps) {
 
         <form onSubmit={handleSubmit} style={styles.form}>
           <h2 style={styles.title}>Sign In</h2>
+
+          {existingUser && (
+            <div style={styles.sessionBanner}>
+              <div style={styles.sessionText}>
+                Signed in as <strong>{existingUser.name}</strong>
+                {existingUser.email ? ` (${existingUser.email})` : ''}
+              </div>
+              <div style={styles.sessionActions}>
+                <button
+                  type="button"
+                  onClick={onContinueExistingUser}
+                  style={styles.sessionPrimaryButton}
+                >
+                  Continue
+                </button>
+                <button
+                  type="button"
+                  onClick={onSwitchUser}
+                  style={styles.sessionSecondaryButton}
+                >
+                  Use different account
+                </button>
+              </div>
+            </div>
+          )}
           
           {error && <div style={styles.error}>{error}</div>}
 
@@ -281,6 +309,45 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#0f172a',
     margin: '0 0 8px',
     textAlign: 'center',
+  },
+  sessionBanner: {
+    border: '1px solid #e2e8f0',
+    background: '#f8fafc',
+    borderRadius: 12,
+    padding: 12,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 10,
+  },
+  sessionText: {
+    fontSize: 13,
+    color: '#0f172a',
+    textAlign: 'center',
+  },
+  sessionActions: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+  },
+  sessionPrimaryButton: {
+    padding: '10px 12px',
+    fontSize: 14,
+    fontWeight: 600,
+    color: '#fff',
+    background: '#0f172a',
+    border: 'none',
+    borderRadius: 8,
+    cursor: 'pointer',
+  },
+  sessionSecondaryButton: {
+    padding: '10px 12px',
+    fontSize: 14,
+    fontWeight: 600,
+    color: '#0f172a',
+    background: '#fff',
+    border: '1px solid #e2e8f0',
+    borderRadius: 8,
+    cursor: 'pointer',
   },
   field: {
     display: 'flex',

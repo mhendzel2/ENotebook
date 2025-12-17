@@ -671,6 +671,10 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
     if (!sanitizedTable) return res.status(400).json({ error: 'Invalid table name' });
 
     const mapping = (options?.mapping && typeof options.mapping === 'object') ? options.mapping : {};
+    const mappingKeys = mapping && typeof mapping === 'object' ? Object.keys(mapping as any) : [];
+    // If user didn't provide a mapping and chose the default table, attempt the known ELN legacy import.
+    // NOTE: this mode must NOT require a table named "Inventory" to exist.
+    const shouldTryLegacyImport = (mappingKeys.length === 0) && (tableRequested.toLowerCase() === 'inventory' || tableRequested.toLowerCase() === 'auto');
     const require = createRequire(import.meta.url);
 
     let ADODB: any;
@@ -699,7 +703,12 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
         try {
           const connectionString = `Provider=${provider};Data Source=${importPath};Persist Security Info=False;`;
           connection = ADODB.open(connectionString);
-          await connection.query(`SELECT TOP 1 * FROM [${sanitizedTable}]`);
+          // Validate that the provider works. For legacy/auto mode we avoid referencing a specific table.
+          if (shouldTryLegacyImport) {
+            await connection.query('SELECT 1');
+          } else {
+            await connection.query(`SELECT TOP 1 * FROM [${sanitizedTable}]`);
+          }
           lastError = null;
           break;
         } catch (e) {
@@ -715,11 +724,6 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
         });
       }
 
-      // If user didn't provide a mapping and left the default table, attempt the known ELN legacy import
-      // (tblantibody/tbldna/tblcellline/tblchemical/tblmr/tbloligo/tblvirus + storage tables).
-      const mappingKeys = mapping && typeof mapping === 'object' ? Object.keys(mapping as any) : [];
-      const shouldTryLegacyImport = (mappingKeys.length === 0) && (tableRequested.toLowerCase() === 'inventory' || tableRequested.toLowerCase() === 'auto');
-
       if (shouldTryLegacyImport) {
         const legacyTables = {
           antibody: 'tblantibody',
@@ -731,10 +735,14 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
           virus: 'tblvirus',
           cmStorage: 'tblcmstorage',
           clStorage: 'tblclstorage',
-          dnaStorage: 'tbldnastorage'
+          dnaStorage: 'tbldnastorage',
+          antibodyStorage: 'tblstorage',
+          oligoStorage: 'tbloligostorage',
+          mrStorage: 'tblmrstorage',
+          miscStorage: 'tblmitemsstorage'
         };
 
-        const [abRows, dnaRows, cellRows, chemRows, mrRows, oligoRows, virusRows, cmStorageRows, clStorageRows, dnaStorageRows] = await Promise.all([
+        const [abRows, dnaRows, cellRows, chemRows, mrRows, oligoRows, virusRows, cmStorageRows, clStorageRows, dnaStorageRows, abStorageRows, oligoStorageRows, mrStorageRows, miscStorageRows] = await Promise.all([
           tryQueryAll(connection, legacyTables.antibody),
           tryQueryAll(connection, legacyTables.dna),
           tryQueryAll(connection, legacyTables.cell),
@@ -744,10 +752,14 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
           tryQueryAll(connection, legacyTables.virus),
           tryQueryAll(connection, legacyTables.cmStorage),
           tryQueryAll(connection, legacyTables.clStorage),
-          tryQueryAll(connection, legacyTables.dnaStorage)
+          tryQueryAll(connection, legacyTables.dnaStorage),
+          tryQueryAll(connection, legacyTables.antibodyStorage),
+          tryQueryAll(connection, legacyTables.oligoStorage),
+          tryQueryAll(connection, legacyTables.mrStorage),
+          tryQueryAll(connection, legacyTables.miscStorage)
         ]);
 
-        const anyLegacyFound = [abRows, dnaRows, cellRows, chemRows, mrRows, oligoRows, virusRows].some(r => Array.isArray(r));
+        const anyLegacyFound = [abRows, dnaRows, cellRows, chemRows, mrRows, oligoRows, virusRows, miscStorageRows].some(r => Array.isArray(r));
 
         if (anyLegacyFound) {
           const summary = {
@@ -798,6 +810,33 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
           };
 
           const normalizeLegacyRow = (r: Record<string, any>) => normalizeRecordKeys(r || {});
+
+          // Misc items (present as storage-only rows)
+          if (Array.isArray(miscStorageRows)) {
+            // Each row represents one stored unit; create a single inventory item per ItemID and let stock counts handle quantities.
+            summary.rows += miscStorageRows.length;
+            const seen = new Set<string>();
+            for (const raw of miscStorageRows) {
+              const row = normalizeLegacyRow(raw);
+              const legacyId = String(row.itemid ?? '').trim();
+              const name = String(row.itemname ?? row.name ?? '').trim();
+              if (!legacyId || !name) continue;
+              if (seen.has(legacyId)) continue;
+              seen.add(legacyId);
+
+              const id = uuidv5(`tblmitems:${legacyId}`, ACCESS_IMPORT_NAMESPACE);
+              const properties = {
+                source: 'access',
+                legacyId,
+                legacyTable: 'tblmitemsstorage'
+              };
+              await upsertItem(id, {
+                name,
+                category: 'reagent',
+                properties: JSON.stringify(properties)
+              });
+            }
+          }
 
           // Antibodies
           if (Array.isArray(abRows)) {
@@ -1080,6 +1119,10 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
           const cmCounts = countBy(cmStorageRows, 'cmid');
           const clCounts = countBy(clStorageRows, 'celllineid');
           const dnaCounts = countBy(dnaStorageRows, 'dnaid');
+          const abCounts = countBy(abStorageRows, 'antibodyid');
+          const oligoCounts = countBy(oligoStorageRows, 'oligoid');
+          const mrCounts = countBy(mrStorageRows, 'mrid');
+          const miscCounts = countBy(miscStorageRows, 'itemid');
 
           for (const [legacyId, qty] of cmCounts.entries()) {
             const itemId = uuidv5(`tblchemical:${legacyId}`, ACCESS_IMPORT_NAMESPACE);
@@ -1091,6 +1134,23 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
           }
           for (const [legacyId, qty] of dnaCounts.entries()) {
             const itemId = uuidv5(`tbldna:${legacyId}`, ACCESS_IMPORT_NAMESPACE);
+            await upsertStock(itemId, qty);
+          }
+
+          for (const [legacyId, qty] of abCounts.entries()) {
+            const itemId = uuidv5(`tblantibody:${legacyId}`, ACCESS_IMPORT_NAMESPACE);
+            await upsertStock(itemId, qty);
+          }
+          for (const [legacyId, qty] of oligoCounts.entries()) {
+            const itemId = uuidv5(`tbloligo:${legacyId}`, ACCESS_IMPORT_NAMESPACE);
+            await upsertStock(itemId, qty);
+          }
+          for (const [legacyId, qty] of mrCounts.entries()) {
+            const itemId = uuidv5(`tblmr:${legacyId}`, ACCESS_IMPORT_NAMESPACE);
+            await upsertStock(itemId, qty);
+          }
+          for (const [legacyId, qty] of miscCounts.entries()) {
+            const itemId = uuidv5(`tblmitems:${legacyId}`, ACCESS_IMPORT_NAMESPACE);
             await upsertStock(itemId, qty);
           }
 
@@ -1112,6 +1172,13 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
 
           return res.json(summary);
         }
+      }
+
+      if (shouldTryLegacyImport) {
+        return res.status(400).json({
+          error: 'No supported legacy inventory tables found in this Access database',
+          hint: 'If this is not an ELN legacy inventory database, specify a table name and mapping, or export to CSV.'
+        });
       }
 
       const rows = (await connection.query(`SELECT * FROM [${sanitizedTable}]`)) as Record<string, any>[];

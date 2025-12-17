@@ -52,7 +52,9 @@ const labelService = new LabelService(prisma);
 const dashboardService = new DashboardService(prisma);
 const poolService = new SamplePoolService(prisma);
 
-app.use(express.json({ limit: '10mb' }));
+// Access MDB imports are uploaded as base64 JSON; base64 expands payload size by ~33%.
+// Keep this above the import route's 50MB raw-file cap.
+app.use(express.json({ limit: '100mb' }));
 app.use(cors());
 app.use(helmet());
 app.use(morgan('dev'));

@@ -15,6 +15,7 @@ const API_BASE = 'http://localhost:4000';
 function App() {
   const [authState, setAuthState] = useState<AuthState>('login');
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [sessionCandidate, setSessionCandidate] = useState<AuthUser | null>(null);
   const [tab, setTab] = useState<NavTab>('dashboard');
   const [methods, setMethods] = useState<Method[]>([]);
   const [experiments, setExperiments] = useState<Experiment[]>([]);
@@ -50,8 +51,9 @@ function App() {
         if (cancelled) return;
 
         localStorage.setItem('eln-user', JSON.stringify(freshUser));
-        setUser(freshUser);
-        setAuthState('authenticated');
+        // Shared-PC friendly: don't immediately enter the app. Offer
+        // "Continue as <user>" or "Use different account" on the login screen.
+        setSessionCandidate(freshUser);
       } catch {
         localStorage.removeItem('eln-user');
       }
@@ -107,16 +109,45 @@ function App() {
   };
 
   const handleLogin = useCallback((loggedInUser: AuthUser) => {
+    setSessionCandidate(null);
     setUser(loggedInUser);
     setAuthState('authenticated');
   }, []);
 
-  const handleLogout = useCallback(() => {
-    localStorage.removeItem('eln-user');
-    setUser(null);
-    setAuthState('login');
-    setMethods([]);
-    setExperiments([]);
+  const handleLogout = useCallback(async () => {
+    try {
+      await fetch(`${API_BASE}/api/auth/logout`, {
+        method: 'POST',
+        headers: user?.id ? { 'x-user-id': user.id } : undefined,
+      });
+    } catch {
+      // Ignore network/server errors; logout should still clear local session.
+    } finally {
+      localStorage.removeItem('eln-user');
+      setSessionCandidate(null);
+      setUser(null);
+      setAuthState('login');
+      setTab('dashboard');
+      setMethods([]);
+      setExperiments([]);
+    }
+  }, [user?.id]);
+
+  const handleContinueAsCandidate = useCallback(() => {
+    if (!sessionCandidate) return;
+    setUser(sessionCandidate);
+    setAuthState('authenticated');
+  }, [sessionCandidate]);
+
+  const handleSwitchUser = useCallback(async () => {
+    try {
+      await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST' });
+    } catch {
+      // ignore
+    } finally {
+      localStorage.removeItem('eln-user');
+      setSessionCandidate(null);
+    }
   }, []);
 
   if (loading) {
@@ -134,6 +165,9 @@ function App() {
       <LoginPage
         onLogin={handleLogin}
         onCreateAccount={() => setAuthState('register')}
+        existingUser={sessionCandidate || undefined}
+        onContinueExistingUser={handleContinueAsCandidate}
+        onSwitchUser={handleSwitchUser}
       />
     );
   }
@@ -1092,7 +1126,7 @@ function InventoryPanel({ user }: { user: AuthUser }) {
   const [stockBarcode, setStockBarcode] = useState('');
   const [stockNotes, setStockNotes] = useState('');
 
-  const [accessTable, setAccessTable] = useState('Inventory');
+  const [accessTable, setAccessTable] = useState('auto');
   const [accessMappingJson, setAccessMappingJson] = useState('');
 
   const headers = useMemo(() => ({ 'x-user-id': user.id, 'Content-Type': 'application/json' }), [user.id]);
@@ -1326,7 +1360,12 @@ function InventoryPanel({ user }: { user: AuthUser }) {
       await fetchInventory();
       await fetchLocations();
     } catch (e: any) {
-      setMessage(e?.message || 'Access import failed');
+      const msg = e?.message || 'Access import failed';
+      if (msg === 'Failed to fetch' || msg === 'NetworkError when attempting to fetch resource.') {
+        setMessage('Access import failed to reach the server. Make sure the server is running on http://localhost:4000 and that large uploads are allowed.');
+      } else {
+        setMessage(msg);
+      }
     }
   };
 
