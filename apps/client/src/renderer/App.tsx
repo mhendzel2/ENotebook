@@ -1021,6 +1021,8 @@ function InventoryPanel({ user }: { user: AuthUser }) {
   const [newItemCategory, setNewItemCategory] = useState<string>(INVENTORY_CATEGORIES[0] || 'reagent');
   const [newItemUnit, setNewItemUnit] = useState('');
   const [newItemCatalog, setNewItemCatalog] = useState('');
+  const [newItemManufacturer, setNewItemManufacturer] = useState('');
+  const [newItemSupplier, setNewItemSupplier] = useState('');
 
   const [stockItemId, setStockItemId] = useState<string | null>(null);
   const [stockQuantity, setStockQuantity] = useState('');
@@ -1037,6 +1039,11 @@ function InventoryPanel({ user }: { user: AuthUser }) {
   const [detailsItem, setDetailsItem] = useState<ItemWithStocks | null>(null);
   const [detailsProperties, setDetailsProperties] = useState<Record<string, unknown>>({});
   const [detailsSaving, setDetailsSaving] = useState(false);
+  const [detailsCatalogNumber, setDetailsCatalogNumber] = useState('');
+  const [detailsManufacturer, setDetailsManufacturer] = useState('');
+  const [detailsSupplier, setDetailsSupplier] = useState('');
+  const [detailsUnit, setDetailsUnit] = useState('');
+  const [detailsDescription, setDetailsDescription] = useState('');
 
   const fetchInventory = useCallback(async () => {
     setLoading(true);
@@ -1115,19 +1122,31 @@ function InventoryPanel({ user }: { user: AuthUser }) {
       const res = await fetch(`${API_BASE}/inventory/${detailsItem.id}`, {
         method: 'PATCH',
         headers,
-        body: JSON.stringify({ properties: detailsProperties })
+        body: JSON.stringify({
+          catalogNumber: detailsCatalogNumber.trim(),
+          manufacturer: detailsManufacturer.trim(),
+          supplier: detailsSupplier.trim(),
+          unit: detailsUnit.trim(),
+          description: detailsDescription,
+          properties: detailsProperties
+        })
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload?.error || 'Failed to update item');
       setDetailsItem(null);
       setDetailsProperties({});
+      setDetailsCatalogNumber('');
+      setDetailsManufacturer('');
+      setDetailsSupplier('');
+      setDetailsUnit('');
+      setDetailsDescription('');
       await fetchInventory();
     } catch (e: any) {
       setMessage(e?.message || 'Failed to update item');
     } finally {
       setDetailsSaving(false);
     }
-  }, [detailsItem, detailsProperties, fetchInventory, headers]);
+  }, [detailsItem, detailsCatalogNumber, detailsManufacturer, detailsSupplier, detailsUnit, detailsDescription, detailsProperties, fetchInventory, headers]);
 
   const handleCreateItem = async () => {
     setMessage(null);
@@ -1141,6 +1160,8 @@ function InventoryPanel({ user }: { user: AuthUser }) {
         category: newItemCategory,
         unit: newItemUnit.trim() || undefined,
         catalogNumber: newItemCatalog.trim() || undefined,
+        manufacturer: newItemManufacturer.trim() || undefined,
+        supplier: newItemSupplier.trim() || undefined,
       };
       const res = await fetch(`${API_BASE}/inventory`, { method: 'POST', headers, body: JSON.stringify(body) });
       if (!res.ok) throw new Error('Failed to create item');
@@ -1148,6 +1169,8 @@ function InventoryPanel({ user }: { user: AuthUser }) {
       setNewItemName('');
       setNewItemUnit('');
       setNewItemCatalog('');
+      setNewItemManufacturer('');
+      setNewItemSupplier('');
       await fetchInventory();
     } catch (e: any) {
       setMessage(e?.message || 'Failed to create item');
@@ -1343,6 +1366,14 @@ function InventoryPanel({ user }: { user: AuthUser }) {
               <label style={styles.formLabel}>Catalog #</label>
               <input value={newItemCatalog} onChange={(e) => setNewItemCatalog(e.target.value)} style={styles.formInput} />
             </div>
+            <div>
+              <label style={styles.formLabel}>Source / Manufacturer</label>
+              <input value={newItemManufacturer} onChange={(e) => setNewItemManufacturer(e.target.value)} style={styles.formInput} />
+            </div>
+            <div>
+              <label style={styles.formLabel}>Supplier</label>
+              <input value={newItemSupplier} onChange={(e) => setNewItemSupplier(e.target.value)} style={styles.formInput} />
+            </div>
           </div>
           <div style={styles.formActions}>
             <button style={styles.secondaryButton} onClick={() => setShowAddItem(false)}>Cancel</button>
@@ -1390,6 +1421,29 @@ function InventoryPanel({ user }: { user: AuthUser }) {
             {detailsItem.name} • {formatCategory(detailsItem.category)}
           </p>
 
+          <div style={styles.formGrid}>
+            <div>
+              <label style={styles.formLabel}>Catalog #</label>
+              <input value={detailsCatalogNumber} onChange={(e) => setDetailsCatalogNumber(e.target.value)} style={styles.formInput} />
+            </div>
+            <div>
+              <label style={styles.formLabel}>Source / Manufacturer</label>
+              <input value={detailsManufacturer} onChange={(e) => setDetailsManufacturer(e.target.value)} style={styles.formInput} />
+            </div>
+            <div>
+              <label style={styles.formLabel}>Supplier</label>
+              <input value={detailsSupplier} onChange={(e) => setDetailsSupplier(e.target.value)} style={styles.formInput} />
+            </div>
+            <div>
+              <label style={styles.formLabel}>Unit</label>
+              <input value={detailsUnit} onChange={(e) => setDetailsUnit(e.target.value)} style={styles.formInput} placeholder="ml, mg, vials…" />
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label style={styles.formLabel}>Description</label>
+              <input value={detailsDescription} onChange={(e) => setDetailsDescription(e.target.value)} style={styles.formInput} />
+            </div>
+          </div>
+
           <SchemaForm
             schema={getInventoryCategorySchema(detailsItem.category)}
             value={detailsProperties}
@@ -1404,6 +1458,11 @@ function InventoryPanel({ user }: { user: AuthUser }) {
               onClick={() => {
                 setDetailsItem(null);
                 setDetailsProperties({});
+                setDetailsCatalogNumber('');
+                setDetailsManufacturer('');
+                setDetailsSupplier('');
+                setDetailsUnit('');
+                setDetailsDescription('');
               }}
               disabled={detailsSaving}
             >
@@ -1427,18 +1486,21 @@ function InventoryPanel({ user }: { user: AuthUser }) {
           const extraInfo: string[] = [];
           if (item.category === 'antibody') {
             if (props.host) extraInfo.push(`Host: ${props.host}`);
-            if (props.westernDilution) extraInfo.push(`WB: ${props.westernDilution}`);
+            if (props.clonality) extraInfo.push(`${props.clonality}`);
+            if (props.dilutions?.WB) extraInfo.push(`WB: ${props.dilutions.WB}`);
           } else if (item.category === 'cell_line') {
-            if (props.species) extraInfo.push(`Species: ${props.species}`);
+            if (props.organism) extraInfo.push(`Species: ${props.organism}`);
             if (props.medium) extraInfo.push(`Medium: ${props.medium}`);
           } else if (item.category === 'plasmid') {
             if (props.backbone) extraInfo.push(`Backbone: ${props.backbone}`);
-            if (props.drugResistance) extraInfo.push(`Resistance: ${props.drugResistance}`);
+            if (props.selectionMarker) extraInfo.push(`Resistance: ${props.selectionMarker}`);
           } else if (item.category === 'primer') {
             if (props.sequence) extraInfo.push(`Seq: ${String(props.sequence).substring(0, 20)}${String(props.sequence).length > 20 ? '...' : ''}`);
             if (props.tm) extraInfo.push(`Tm: ${props.tm}`);
           } else if (item.category === 'reagent') {
             if (props.stockConcentration) extraInfo.push(`Stock: ${props.stockConcentration}`);
+            if (props.lotNumber) extraInfo.push(`Lot: ${props.lotNumber}`);
+            if (props.purchaseDate) extraInfo.push(`Purchased: ${props.purchaseDate}`);
             if (props.casNo) extraInfo.push(`CAS: ${props.casNo}`);
           }
           
@@ -1469,6 +1531,11 @@ function InventoryPanel({ user }: { user: AuthUser }) {
                   onClick={() => {
                     setDetailsItem(item);
                     setDetailsProperties((item.properties as any) || {});
+                    setDetailsCatalogNumber(item.catalogNumber || '');
+                    setDetailsManufacturer(item.manufacturer || '');
+                    setDetailsSupplier(item.supplier || '');
+                    setDetailsUnit(item.unit || '');
+                    setDetailsDescription(item.description || '');
                   }}
                 >
                   Edit Details

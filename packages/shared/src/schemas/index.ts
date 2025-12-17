@@ -745,6 +745,7 @@ export const reagentPropertiesSchema: JSONSchema = {
     inhibitor: { type: 'string', title: 'Inhibitor Type' },
     purchaseDate: { type: 'string', title: 'Purchase Date' },
     dateOpened: { type: 'string', title: 'Date Opened' },
+    msdsDate: { type: 'string', title: 'MSDS Date' },
     alternateNames: { type: 'string', title: 'Alternate Names' },
     amount: { type: 'string', title: 'Amount' },
     comments: { type: 'string', title: 'Comments', 'ui:widget': 'textarea' },
@@ -752,7 +753,8 @@ export const reagentPropertiesSchema: JSONSchema = {
       type: 'string', 
       title: 'Hazard Information',
       'ui:widget': 'textarea'
-    }
+    },
+    path: { type: 'string', title: 'MSDS / Reference Link or Path', 'ui:widget': 'textarea' }
   }
 };
 
