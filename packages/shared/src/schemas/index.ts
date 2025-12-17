@@ -735,6 +735,7 @@ export const reagentPropertiesSchema: JSONSchema = {
   title: 'Reagent Properties',
   type: 'object',
   properties: {
+    itemType: { type: 'string', title: 'Reagent Type', enum: ['chemical', 'molecular_reagent', ''] },
     stockConcentration: { type: 'string', title: 'Stock Concentration' },
     workingConcentration: { type: 'string', title: 'Working Concentration' },
     molecularWeight: { type: 'string', title: 'Molecular Weight (g/mol)' },
@@ -755,6 +756,15 @@ export const reagentPropertiesSchema: JSONSchema = {
       'ui:widget': 'textarea'
     },
     path: { type: 'string', title: 'MSDS / Reference Link or Path', 'ui:widget': 'textarea' }
+
+    ,
+    // Molecular reagent-specific fields (used when itemType is 'molecular_reagent')
+    components: { type: 'string', title: 'Components', 'ui:widget': 'textarea' },
+    concentration: { type: 'string', title: 'Concentration' },
+    workBuffer: { type: 'string', title: 'Working Buffer', 'ui:widget': 'textarea' },
+    expirationDate: { type: 'string', title: 'Expiration Date' },
+    reference: { type: 'string', title: 'Reference' },
+    notes: { type: 'string', title: 'Notes', 'ui:widget': 'textarea' }
   }
 };
 

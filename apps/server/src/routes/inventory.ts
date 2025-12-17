@@ -8,7 +8,7 @@ import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import { parse as parseCsv } from 'csv-parse/sync';
-import { v4 as uuid } from 'uuid';
+import { v4 as uuid, v5 as uuidv5 } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createRequire } from 'module';
@@ -115,6 +115,77 @@ const inventoryImportLimiter = rateLimit({
     return userId || req.ip || 'anonymous';
   }
 });
+
+const ACCESS_IMPORT_NAMESPACE = uuidv5('eln-access-import', uuidv5.DNS);
+
+function toDateString(value: unknown): string {
+  if (!value) return '';
+  if (value instanceof Date && !Number.isNaN(value.valueOf())) {
+    return value.toISOString().slice(0, 10);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    const d = new Date(trimmed);
+    if (!Number.isNaN(d.valueOf())) return d.toISOString().slice(0, 10);
+    return trimmed;
+  }
+  try {
+    const d = new Date(String(value));
+    if (!Number.isNaN(d.valueOf())) return d.toISOString().slice(0, 10);
+  } catch {
+    // ignore
+  }
+  return String(value);
+}
+
+function normalizeHost(host: unknown): string {
+  const h = String(host ?? '').trim().toLowerCase();
+  if (!h) return '';
+  if (h.includes('mouse')) return 'mouse';
+  if (h.includes('rabbit')) return 'rabbit';
+  if (h.includes('goat')) return 'goat';
+  if (h.includes('rat')) return 'rat';
+  if (h.includes('donkey')) return 'donkey';
+  if (h.includes('human')) return 'human';
+  if (h.includes('sheep')) return 'sheep';
+  if (h.includes('guinea')) return 'guinea pig';
+  if (h.includes('chicken')) return 'chicken';
+  return h;
+}
+
+function normalizeClonality(value: unknown): string {
+  const v = String(value ?? '').trim().toLowerCase();
+  if (!v) return '';
+  if (v.startsWith('m')) return 'monoclonal';
+  if (v.startsWith('p')) return 'polyclonal';
+  if (v.includes('mono')) return 'monoclonal';
+  if (v.includes('poly')) return 'polyclonal';
+  return v;
+}
+
+function buildChemicalHazards(row: Record<string, any>): string {
+  const labels: string[] = [];
+  for (let i = 1; i <= 10; i++) {
+    const key = `hd${i}`;
+    const val = row[key];
+    if (val === true || String(val).trim().toLowerCase() === 'true' || String(val).trim() === '1') {
+      labels.push(key);
+    }
+  }
+  return labels.join(', ');
+}
+
+async function tryQueryAll(connection: any, table: string): Promise<Record<string, any>[] | null> {
+  const sanitized = sanitizeBracketIdentifier(table);
+  if (!sanitized) return null;
+  try {
+    const rows = await connection.query(`SELECT * FROM [${sanitized}]`);
+    return Array.isArray(rows) ? (rows as Record<string, any>[]) : [];
+  } catch {
+    return null;
+  }
+}
 
 function decodeBase64ToBuffer(base64: string, maxBytes: number) {
   let buf: Buffer;
@@ -642,6 +713,405 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
           hint: 'Install Microsoft Access Database Engine (ACE OLEDB 12.0+) on this machine, or export your tables to CSV.',
           details: String(lastError?.message || lastError || 'unknown')
         });
+      }
+
+      // If user didn't provide a mapping and left the default table, attempt the known ELN legacy import
+      // (tblantibody/tbldna/tblcellline/tblchemical/tblmr/tbloligo/tblvirus + storage tables).
+      const mappingKeys = mapping && typeof mapping === 'object' ? Object.keys(mapping as any) : [];
+      const shouldTryLegacyImport = (mappingKeys.length === 0) && (tableRequested.toLowerCase() === 'inventory' || tableRequested.toLowerCase() === 'auto');
+
+      if (shouldTryLegacyImport) {
+        const legacyTables = {
+          antibody: 'tblantibody',
+          dna: 'tbldna',
+          cell: 'tblcellline',
+          chemical: 'tblchemical',
+          mr: 'tblmr',
+          oligo: 'tbloligo',
+          virus: 'tblvirus',
+          cmStorage: 'tblcmstorage',
+          clStorage: 'tblclstorage',
+          dnaStorage: 'tbldnastorage'
+        };
+
+        const [abRows, dnaRows, cellRows, chemRows, mrRows, oligoRows, virusRows, cmStorageRows, clStorageRows, dnaStorageRows] = await Promise.all([
+          tryQueryAll(connection, legacyTables.antibody),
+          tryQueryAll(connection, legacyTables.dna),
+          tryQueryAll(connection, legacyTables.cell),
+          tryQueryAll(connection, legacyTables.chemical),
+          tryQueryAll(connection, legacyTables.mr),
+          tryQueryAll(connection, legacyTables.oligo),
+          tryQueryAll(connection, legacyTables.virus),
+          tryQueryAll(connection, legacyTables.cmStorage),
+          tryQueryAll(connection, legacyTables.clStorage),
+          tryQueryAll(connection, legacyTables.dnaStorage)
+        ]);
+
+        const anyLegacyFound = [abRows, dnaRows, cellRows, chemRows, mrRows, oligoRows, virusRows].some(r => Array.isArray(r));
+
+        if (anyLegacyFound) {
+          const summary = {
+            rows: 0,
+            itemsCreated: 0,
+            itemsUpdated: 0,
+            stocksCreated: 0,
+            warnings: [] as string[],
+            errors: [] as string[]
+          };
+
+          const locationId = uuidv5('location:legacy-storage', ACCESS_IMPORT_NAMESPACE);
+          await prisma.location.upsert({
+            where: { id: locationId },
+            update: { name: 'legacy-storage' },
+            create: { id: locationId, name: 'legacy-storage', description: 'Imported legacy storage (from Access)' }
+          });
+
+          const createdStockForItem = new Set<string>();
+
+          const upsertItem = async (id: string, data: any) => {
+            const existing = await prisma.inventoryItem.findUnique({ where: { id } });
+            await prisma.inventoryItem.upsert({
+              where: { id },
+              update: data,
+              create: { id, ...data }
+            });
+            if (existing) summary.itemsUpdated++;
+            else summary.itemsCreated++;
+          };
+
+          const upsertStock = async (itemId: string, qty: number) => {
+            if (!Number.isFinite(qty) || qty <= 0) return;
+            const stockId = uuidv5(`stock:${itemId}:${locationId}`, ACCESS_IMPORT_NAMESPACE);
+            await prisma.stock.upsert({
+              where: { id: stockId },
+              update: { quantity: qty },
+              create: {
+                id: stockId,
+                itemId,
+                locationId,
+                quantity: qty,
+                initialQuantity: qty
+              }
+            });
+            if (!createdStockForItem.has(itemId)) summary.stocksCreated++;
+            createdStockForItem.add(itemId);
+          };
+
+          const normalizeLegacyRow = (r: Record<string, any>) => normalizeRecordKeys(r || {});
+
+          // Antibodies
+          if (Array.isArray(abRows)) {
+            summary.rows += abRows.length;
+            for (const raw of abRows) {
+              const row = normalizeLegacyRow(raw);
+              const legacyId = String(row.antibodyid ?? '').trim();
+              const name = String(row.antibodyname ?? '').trim();
+              if (!legacyId || !name) continue;
+
+              const id = uuidv5(`tblantibody:${legacyId}`, ACCESS_IMPORT_NAMESPACE);
+              const properties = {
+                source: 'access',
+                legacyId,
+                target: String(row.antigen ?? '').trim(),
+                host: normalizeHost(row.host),
+                clonality: normalizeClonality(row.pm),
+                isotype: String(row.class ?? '').trim(),
+                conjugate: String(row.label ?? '').trim(),
+                concentration: String(row.concentration ?? '').trim(),
+                lotNumber: String(row.lotnumber ?? '').trim(),
+                purity: String(row.purity ?? '').trim(),
+                crossReactivity: String(row.crossactivity ?? '').trim(),
+                reference: String(row.reference ?? '').trim(),
+                investigator: String(row.investigator ?? '').trim(),
+                dilutions: {
+                  WB: String(row.westernc ?? '').trim(),
+                  IF: String(row.confocalc ?? '').trim(),
+                  FACS: String(row.facsc ?? '').trim(),
+                  IHC: String(row.histoic ?? '').trim(),
+                  ELISA: String(row.elisa ?? '').trim(),
+                  IP: String(row.ipc ?? '').trim()
+                }
+              };
+
+              await upsertItem(id, {
+                name,
+                category: 'antibody',
+                description: String(row.note ?? '').trim() || undefined,
+                catalogNumber: String(row.catalogno ?? '').trim() || undefined,
+                manufacturer: String(row.company ?? '').trim() || undefined,
+                properties: JSON.stringify(properties)
+              });
+
+              const tubes = parseOptionalNumber(String(row.tubes ?? '').replace(/[^0-9.]/g, ''));
+              if (tubes && tubes > 0) await upsertStock(id, tubes);
+            }
+          }
+
+          // Plasmids (DNA)
+          if (Array.isArray(dnaRows)) {
+            summary.rows += dnaRows.length;
+            for (const raw of dnaRows) {
+              const row = normalizeLegacyRow(raw);
+              const legacyId = String(row.dnaid ?? '').trim();
+              const name = String(row.dnaname ?? '').trim();
+              if (!legacyId || !name) continue;
+              const id = uuidv5(`tbldna:${legacyId}`, ACCESS_IMPORT_NAMESPACE);
+              const properties = {
+                source: 'access',
+                legacyId,
+                backbone: String(row.backbone ?? '').trim(),
+                size: String(row.sizevector ?? '').trim(),
+                insert: String(row.insert ?? '').trim(),
+                insertOrigin: String(row.orginsert ?? '').trim(),
+                promoter: String(row.promoter ?? '').trim(),
+                promoterOrigin: String(row.originofpromoter ?? '').trim(),
+                selectionMarker: String(row.drugresistance ?? '').trim(),
+                codingSequence: String(row.codingseq ?? '').trim(),
+                codingSequenceOrigin: String(row.originofcodingseq ?? '').trim(),
+                concentration: String(row.dnaconcent ?? '').trim(),
+                purity: String(row.purity ?? '').trim(),
+                biosafety: String(row.biosafety ?? '').trim(),
+                sequenceDate: toDateString(row.sequencedate),
+                sequenceFile: String(row.seqfilename ?? '').trim(),
+                mapFile: String(row.plasmidmap ?? '').trim(),
+                oligosUsed: String(row.oligoused ?? '').trim(),
+                lotNumber: String(row.lotno ?? '').trim(),
+                constructionMethod: String(row.constructioonmethod ?? '').trim(),
+                reference: String(row.reference ?? '').trim(),
+                info: String(row.info ?? '').trim(),
+                investigator: String(row.investigtor ?? '').trim()
+              };
+
+              await upsertItem(id, {
+                name,
+                category: 'plasmid',
+                properties: JSON.stringify(properties)
+              });
+            }
+          }
+
+          // Cell lines
+          if (Array.isArray(cellRows)) {
+            summary.rows += cellRows.length;
+            for (const raw of cellRows) {
+              const row = normalizeLegacyRow(raw);
+              const legacyId = String(row.celllineid ?? '').trim();
+              const name = String(row.celllinename ?? row.cellname ?? row.name ?? '').trim();
+              if (!legacyId || !name) continue;
+              const id = uuidv5(`tblcellline:${legacyId}`, ACCESS_IMPORT_NAMESPACE);
+              const properties = {
+                source: 'access',
+                legacyId,
+                organism: String(row.species ?? '').trim(),
+                cellType: String(row.celltype ?? '').trim(),
+                medium: String(row.medium ?? '').trim(),
+                supplements: String(row.mediumspecial ?? '').trim(),
+                passageNumber: String(row.passageno ?? '').trim(),
+                parentalCell: String(row.parentalcell ?? '').trim(),
+                growthCondition: String(row.growthcondition ?? '').trim(),
+                obtainedFrom: String(row.obtainfrom ?? '').trim(),
+                accessionNumber: String(row.acctno ?? '').trim(),
+                plasmids: [row.plasmid1, row.plasmid2, row.plasmid3].map(v => String(v ?? '').trim()).filter(Boolean).join(', '),
+                selectionMarkers: [row.selection1, row.selection2, row.selection3].map(v => String(v ?? '').trim()).filter(Boolean).join(', '),
+                reference: String(row.reference ?? '').trim(),
+                notes: String(row.note ?? '').trim(),
+                investigator: String(row.investigator ?? '').trim(),
+                createdBy: String(row.createdby ?? '').trim(),
+                modifiedBy: String(row.modifyby ?? '').trim()
+              };
+              await upsertItem(id, {
+                name,
+                category: 'cell_line',
+                properties: JSON.stringify(properties)
+              });
+            }
+          }
+
+          // Chemicals (reagents)
+          if (Array.isArray(chemRows)) {
+            summary.rows += chemRows.length;
+            for (const raw of chemRows) {
+              const row = normalizeLegacyRow(raw);
+              const legacyId = String(row.cmid ?? '').trim();
+              const name = String(row.cmname ?? '').trim();
+              if (!legacyId || !name) continue;
+              const id = uuidv5(`tblchemical:${legacyId}`, ACCESS_IMPORT_NAMESPACE);
+              const properties = {
+                source: 'access',
+                legacyId,
+                itemType: 'chemical',
+                stockConcentration: String(row.stockconcentration ?? '').trim(),
+                workingConcentration: String(row.workconcentration ?? '').trim(),
+                molecularWeight: String(row.fw ?? '').trim(),
+                casNo: String(row.casno ?? '').trim(),
+                lotNumber: String(row.lotnumber ?? '').trim(),
+                caution: String(row.caution ?? '').trim(),
+                activity: String(row.activity ?? '').trim(),
+                inhibitor: String(row.inhibitor ?? '').trim(),
+                purchaseDate: toDateString(row.purchasedate),
+                dateOpened: toDateString(row.dateopen),
+                msdsDate: toDateString(row.msdsdate),
+                alternateNames: String(row.altname ?? '').trim(),
+                amount: String(row.amount ?? '').trim(),
+                comments: String(row.comments ?? '').trim(),
+                hazards: buildChemicalHazards(row),
+                path: String(row.path ?? '').trim()
+              };
+              await upsertItem(id, {
+                name,
+                category: 'reagent',
+                catalogNumber: String(row.catalogno ?? '').trim() || undefined,
+                manufacturer: String(row.company ?? '').trim() || undefined,
+                properties: JSON.stringify(properties)
+              });
+            }
+          }
+
+          // Molecular reagents (reagents)
+          if (Array.isArray(mrRows)) {
+            summary.rows += mrRows.length;
+            for (const raw of mrRows) {
+              const row = normalizeLegacyRow(raw);
+              const legacyId = String(row.mrid ?? '').trim();
+              const name = String(row.mrname ?? '').trim();
+              if (!legacyId || !name) continue;
+              const id = uuidv5(`tblmr:${legacyId}`, ACCESS_IMPORT_NAMESPACE);
+              const properties = {
+                source: 'access',
+                legacyId,
+                itemType: 'molecular_reagent',
+                components: String(row.components ?? '').trim(),
+                concentration: String(row.concentration ?? '').trim(),
+                workBuffer: String(row.workbuffer ?? '').trim(),
+                amount: String(row.amount ?? '').trim(),
+                expirationDate: toDateString(row.expdate),
+                lotNumber: String(row.lotno ?? '').trim(),
+                reference: String(row.reference ?? '').trim(),
+                notes: String(row.notes ?? '').trim()
+              };
+              await upsertItem(id, {
+                name,
+                category: 'reagent',
+                description: String(row.description ?? '').trim() || undefined,
+                catalogNumber: String(row.catalogno ?? '').trim() || undefined,
+                manufacturer: String(row.company ?? '').trim() || undefined,
+                properties: JSON.stringify(properties)
+              });
+            }
+          }
+
+          // Primers
+          if (Array.isArray(oligoRows)) {
+            summary.rows += oligoRows.length;
+            for (const raw of oligoRows) {
+              const row = normalizeLegacyRow(raw);
+              const legacyId = String(row.oligoid ?? '').trim();
+              const name = String(row.oligoname ?? row.name ?? '').trim();
+              if (!legacyId || !name) continue;
+              const id = uuidv5(`tbloligo:${legacyId}`, ACCESS_IMPORT_NAMESPACE);
+              const properties = {
+                source: 'access',
+                legacyId,
+                sequence: String(row.sequence ?? '').trim(),
+                length: row.length,
+                tm: row.tm,
+                alternateName: String(row.alternatename ?? '').trim(),
+                modifications: {
+                  threePrime: String(row.modifications ?? '').trim()
+                }
+              };
+              await upsertItem(id, {
+                name,
+                category: 'primer',
+                properties: JSON.stringify(properties)
+              });
+            }
+          }
+
+          // Virus samples
+          if (Array.isArray(virusRows)) {
+            summary.rows += virusRows.length;
+            for (const raw of virusRows) {
+              const row = normalizeLegacyRow(raw);
+              const legacyId = String(row.virusid ?? '').trim();
+              const name = String(row.virusname ?? row.name ?? '').trim();
+              if (!legacyId || !name) continue;
+              const id = uuidv5(`tblvirus:${legacyId}`, ACCESS_IMPORT_NAMESPACE);
+              const properties = {
+                source: 'access',
+                legacyId,
+                backbone: String(row.backbone ?? '').trim(),
+                helperVirus: String(row.helpervirus ?? '').trim(),
+                promoter: String(row.promoter ?? '').trim(),
+                codingSequence: String(row.codingseq ?? '').trim(),
+                pfu: String(row.pfu ?? '').trim(),
+                particles: String(row.particles ?? '').trim(),
+                purity: String(row.purity ?? '').trim(),
+                sourcePlaque: String(row.sourceplaque ?? '').trim(),
+                oligosUsed: String(row.oligoused ?? '').trim(),
+                sequenceDate: toDateString(row.sequencedate),
+                sequenceFile: String(row.seqfilename ?? '').trim(),
+                virusMap: String(row.virusmap ?? '').trim(),
+                reference: String(row.reference ?? '').trim(),
+                lotNumber: String(row.lotno ?? '').trim(),
+                investigator: String(row.investigator ?? '').trim()
+              };
+              await upsertItem(id, {
+                name,
+                category: 'sample',
+                properties: JSON.stringify(properties)
+              });
+            }
+          }
+
+          // Storage-derived stock counts
+          const countBy = (rows: Record<string, any>[] | null, key: string): Map<string, number> => {
+            const m = new Map<string, number>();
+            if (!Array.isArray(rows)) return m;
+            for (const raw of rows) {
+              const row = normalizeLegacyRow(raw);
+              const id = String((row as any)[key] ?? '').trim();
+              if (!id) continue;
+              m.set(id, (m.get(id) || 0) + 1);
+            }
+            return m;
+          };
+
+          const cmCounts = countBy(cmStorageRows, 'cmid');
+          const clCounts = countBy(clStorageRows, 'celllineid');
+          const dnaCounts = countBy(dnaStorageRows, 'dnaid');
+
+          for (const [legacyId, qty] of cmCounts.entries()) {
+            const itemId = uuidv5(`tblchemical:${legacyId}`, ACCESS_IMPORT_NAMESPACE);
+            await upsertStock(itemId, qty);
+          }
+          for (const [legacyId, qty] of clCounts.entries()) {
+            const itemId = uuidv5(`tblcellline:${legacyId}`, ACCESS_IMPORT_NAMESPACE);
+            await upsertStock(itemId, qty);
+          }
+          for (const [legacyId, qty] of dnaCounts.entries()) {
+            const itemId = uuidv5(`tbldna:${legacyId}`, ACCESS_IMPORT_NAMESPACE);
+            await upsertStock(itemId, qty);
+          }
+
+          // Default stock = 1 for imported legacy items with no storage-derived stock.
+          const allImportedItemIds = new Set<string>();
+          if (Array.isArray(chemRows)) for (const raw of chemRows) { const row = normalizeLegacyRow(raw); const legacyId = String(row.cmid ?? '').trim(); if (legacyId) allImportedItemIds.add(uuidv5(`tblchemical:${legacyId}`, ACCESS_IMPORT_NAMESPACE)); }
+          if (Array.isArray(mrRows)) for (const raw of mrRows) { const row = normalizeLegacyRow(raw); const legacyId = String(row.mrid ?? '').trim(); if (legacyId) allImportedItemIds.add(uuidv5(`tblmr:${legacyId}`, ACCESS_IMPORT_NAMESPACE)); }
+          if (Array.isArray(abRows)) for (const raw of abRows) { const row = normalizeLegacyRow(raw); const legacyId = String(row.antibodyid ?? '').trim(); if (legacyId) allImportedItemIds.add(uuidv5(`tblantibody:${legacyId}`, ACCESS_IMPORT_NAMESPACE)); }
+          if (Array.isArray(dnaRows)) for (const raw of dnaRows) { const row = normalizeLegacyRow(raw); const legacyId = String(row.dnaid ?? '').trim(); if (legacyId) allImportedItemIds.add(uuidv5(`tbldna:${legacyId}`, ACCESS_IMPORT_NAMESPACE)); }
+          if (Array.isArray(cellRows)) for (const raw of cellRows) { const row = normalizeLegacyRow(raw); const legacyId = String(row.celllineid ?? '').trim(); if (legacyId) allImportedItemIds.add(uuidv5(`tblcellline:${legacyId}`, ACCESS_IMPORT_NAMESPACE)); }
+          if (Array.isArray(oligoRows)) for (const raw of oligoRows) { const row = normalizeLegacyRow(raw); const legacyId = String(row.oligoid ?? '').trim(); if (legacyId) allImportedItemIds.add(uuidv5(`tbloligo:${legacyId}`, ACCESS_IMPORT_NAMESPACE)); }
+          if (Array.isArray(virusRows)) for (const raw of virusRows) { const row = normalizeLegacyRow(raw); const legacyId = String(row.virusid ?? '').trim(); if (legacyId) allImportedItemIds.add(uuidv5(`tblvirus:${legacyId}`, ACCESS_IMPORT_NAMESPACE)); }
+
+          for (const itemId of allImportedItemIds) {
+            if (!createdStockForItem.has(itemId)) {
+              await upsertStock(itemId, 1);
+            }
+          }
+
+          return res.json(summary);
+        }
       }
 
       const rows = (await connection.query(`SELECT * FROM [${sanitizedTable}]`)) as Record<string, any>[];
