@@ -735,16 +735,23 @@ export const reagentPropertiesSchema: JSONSchema = {
   title: 'Reagent Properties',
   type: 'object',
   properties: {
-    concentration: { type: 'number', title: 'Concentration' },
-    concentrationUnit: { type: 'string', title: 'Unit', enum: ['M', 'mM', 'µM', 'nM', 'mg/mL', '%'] },
-    molecularWeight: { type: 'number', title: 'Molecular Weight (g/mol)' },
-    purity: { type: 'number', title: 'Purity (%)', minimum: 0, maximum: 100 },
-    grade: { type: 'string', title: 'Grade', enum: ['ACS', 'reagent', 'analytical', 'HPLC', 'molecular_biology'] },
-    cas: { type: 'string', title: 'CAS Number', pattern: '^[0-9]+-[0-9]+-[0-9]+$' },
+    stockConcentration: { type: 'string', title: 'Stock Concentration' },
+    workingConcentration: { type: 'string', title: 'Working Concentration' },
+    molecularWeight: { type: 'string', title: 'Molecular Weight (g/mol)' },
+    casNo: { type: 'string', title: 'CAS Number' },
+    lotNumber: { type: 'string', title: 'Lot Number' },
+    caution: { type: 'string', title: 'Safety Caution', 'ui:widget': 'textarea' },
+    activity: { type: 'string', title: 'Activity/Function' },
+    inhibitor: { type: 'string', title: 'Inhibitor Type' },
+    purchaseDate: { type: 'string', title: 'Purchase Date' },
+    dateOpened: { type: 'string', title: 'Date Opened' },
+    alternateNames: { type: 'string', title: 'Alternate Names' },
+    amount: { type: 'string', title: 'Amount' },
+    comments: { type: 'string', title: 'Comments', 'ui:widget': 'textarea' },
     hazards: { 
-      type: 'array', 
-      title: 'GHS Hazards',
-      items: { type: 'string', enum: ['flammable', 'oxidizer', 'toxic', 'corrosive', 'irritant', 'health_hazard', 'environmental'] }
+      type: 'string', 
+      title: 'Hazard Information',
+      'ui:widget': 'textarea'
     }
   }
 };
@@ -755,11 +762,20 @@ export const antibodyPropertiesSchema: JSONSchema = {
   type: 'object',
   properties: {
     target: { type: 'string', title: 'Target Antigen' },
-    host: { type: 'string', title: 'Host Species', enum: ['mouse', 'rabbit', 'goat', 'rat', 'donkey', 'human'] },
+    host: { 
+      type: 'string', 
+      title: 'Host Species', 
+      enum: ['mouse', 'rabbit', 'goat', 'rat', 'donkey', 'human', 'sheep', 'guinea pig', 'chicken', 'other'],
+      'ui:placeholder': 'Select or type host species'
+    },
     clonality: { type: 'string', title: 'Clonality', enum: ['monoclonal', 'polyclonal'] },
     clone: { type: 'string', title: 'Clone ID' },
     isotype: { type: 'string', title: 'Isotype' },
     conjugate: { type: 'string', title: 'Conjugate/Label' },
+    concentration: { type: 'string', title: 'Concentration' },
+    lotNumber: { type: 'string', title: 'Lot Number' },
+    purity: { type: 'string', title: 'Purity' },
+    crossReactivity: { type: 'string', title: 'Cross-Reactivity' },
     applications: {
       type: 'array',
       title: 'Validated Applications',
@@ -769,10 +785,13 @@ export const antibodyPropertiesSchema: JSONSchema = {
       type: 'object',
       title: 'Recommended Dilutions',
       properties: {
-        WB: { type: 'string' },
-        IF: { type: 'string' },
-        FACS: { type: 'string' },
-        IHC: { type: 'string' }
+        WB: { type: 'string', title: 'Western Blot' },
+        IF: { type: 'string', title: 'Immunofluorescence' },
+        FACS: { type: 'string', title: 'Flow Cytometry' },
+        IHC: { type: 'string', title: 'Immunohistochemistry' },
+        IP: { type: 'string', title: 'Immunoprecipitation' },
+        ELISA: { type: 'string', title: 'ELISA' },
+        ChIP: { type: 'string', title: 'ChIP' }
       }
     }
   }
@@ -811,26 +830,32 @@ export const plasmidPropertiesSchema: JSONSchema = {
   type: 'object',
   properties: {
     backbone: { type: 'string', title: 'Backbone Vector' },
-    size: { type: 'number', title: 'Size (bp)' },
+    size: { type: 'string', title: 'Size (bp)' },
     insert: { type: 'string', title: 'Insert Gene/Sequence' },
-    insertSize: { type: 'number', title: 'Insert Size (bp)' },
+    insertOrigin: { type: 'string', title: 'Insert Origin' },
     promoter: { type: 'string', title: 'Promoter' },
-    selectionMarker: { 
-      type: 'array',
-      title: 'Selection Markers',
-      items: { type: 'string', enum: ['Amp', 'Kan', 'Cam', 'Spec', 'Tet', 'Puro', 'Hygro', 'Neo', 'Blast'] }
-    },
-    copyNumber: { type: 'string', title: 'Copy Number', enum: ['low', 'medium', 'high'] },
-    expressionHost: { type: 'string', title: 'Expression Host', enum: ['E.coli', 'mammalian', 'insect', 'yeast'] },
-    fusionTag: { type: 'string', title: 'Fusion Tag' },
+    promoterOrigin: { type: 'string', title: 'Promoter Origin' },
+    selectionMarker: { type: 'string', title: 'Selection Marker/Drug Resistance' },
+    codingSequence: { type: 'string', title: 'Coding Sequence' },
+    codingSequenceOrigin: { type: 'string', title: 'Coding Sequence Origin' },
+    concentration: { type: 'string', title: 'DNA Concentration' },
+    purity: { type: 'string', title: 'Purity' },
+    biosafety: { type: 'string', title: 'Biosafety Level' },
+    sequenceDate: { type: 'string', title: 'Sequence Date' },
+    sequenceFile: { type: 'string', title: 'Sequence Filename' },
+    mapFile: { type: 'string', title: 'Plasmid Map File' },
+    oligosUsed: { type: 'string', title: 'Oligos Used' },
+    lotNumber: { type: 'string', title: 'Lot Number' },
+    constructionMethod: { type: 'string', title: 'Construction Method', 'ui:widget': 'textarea' },
+    reference: { type: 'string', title: 'Reference' },
+    info: { type: 'string', title: 'Additional Info', 'ui:widget': 'textarea' },
+    investigator: { type: 'string', title: 'Investigator' },
     sequence: {
       type: 'string',
-      title: 'Sequence',
+      title: 'Full Sequence',
       description: 'Paste the plasmid sequence (IUPAC DNA letters allowed). Whitespace is OK.',
-      pattern: '^[ACGTRYSWKMBDHVNacgtryswkmbdhvn\\s]*$',
       'ui:widget': 'textarea'
     },
-    sequenceVerified: { type: 'boolean', title: 'Sequence Verified' },
     restrictionMaps: {
       type: 'array',
       title: 'Restriction Maps',
@@ -838,8 +863,7 @@ export const plasmidPropertiesSchema: JSONSchema = {
       'ui:widget': 'attachment',
       'ui:accept': 'image/*,application/pdf,text/plain,text/markdown,text/html',
       'ui:multiple': true
-    },
-    mapFile: { type: 'string', title: 'Legacy Map File (attachment ID)', description: 'Deprecated: prefer Restriction Maps.' }
+    }
   }
 };
 
@@ -848,19 +872,24 @@ export const cellLinePropertiesSchema: JSONSchema = {
   title: 'Cell Line Properties',
   type: 'object',
   properties: {
-    organism: { type: 'string', title: 'Organism' },
+    organism: { type: 'string', title: 'Organism/Species' },
     tissue: { type: 'string', title: 'Tissue Origin' },
     cellType: { type: 'string', title: 'Cell Type' },
-    morphology: { type: 'string', title: 'Morphology', enum: ['adherent', 'suspension', 'mixed'] },
+    morphology: { type: 'string', title: 'Morphology', enum: ['adherent', 'suspension', 'mixed', ''] },
     medium: { type: 'string', title: 'Culture Medium' },
-    supplements: { type: 'array', title: 'Supplements', items: { type: 'string' } },
+    supplements: { type: 'string', title: 'Medium Supplements' },
     serumRequirement: { type: 'string', title: 'Serum' },
-    passageNumber: { type: 'integer', title: 'Passage Number' },
-    doublingTime: { type: 'number', title: 'Doubling Time (hours)' },
-    mycoplasmaStatus: { type: 'string', title: 'Mycoplasma Status', enum: ['negative', 'positive', 'unknown', 'not_tested'] },
-    authentication: { type: 'string', title: 'Authentication Method' },
-    biosafety: { type: 'string', title: 'Biosafety Level', enum: ['BSL-1', 'BSL-2', 'BSL-3'] },
-    geneticModifications: { type: 'array', title: 'Genetic Modifications', items: { type: 'string' } }
+    passageNumber: { type: 'string', title: 'Passage Number' },
+    parentalCell: { type: 'string', title: 'Parental Cell Line' },
+    growthCondition: { type: 'string', title: 'Growth Conditions', 'ui:widget': 'textarea' },
+    obtainedFrom: { type: 'string', title: 'Obtained From' },
+    accessionNumber: { type: 'string', title: 'Accession Number' },
+    plasmids: { type: 'string', title: 'Transfected Plasmids' },
+    selectionMarkers: { type: 'string', title: 'Selection Markers' },
+    reference: { type: 'string', title: 'Reference' },
+    notes: { type: 'string', title: 'Notes', 'ui:widget': 'textarea' },
+    investigator: { type: 'string', title: 'Investigator' },
+    biosafety: { type: 'string', title: 'Biosafety Level' }
   }
 };
 

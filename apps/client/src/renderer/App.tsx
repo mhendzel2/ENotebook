@@ -1365,35 +1365,67 @@ function InventoryPanel({ user }: { user: AuthUser }) {
       )}
 
       <div style={styles.section}>
-        <h3 style={styles.sectionTitle}>Items</h3>
+        <h3 style={styles.sectionTitle}>Items ({items.length})</h3>
         {items.length === 0 && !loading && (
           <p style={styles.emptyMessage}>No inventory items yet. Add one, or import a CSV/Access table.</p>
         )}
-        {items.map(item => (
-          <div key={item.id} style={styles.listItem}>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={styles.listItemTitle}>{item.name}</span>
-              <span style={styles.listItemMeta}>
-                {formatCategory(item.category)}{item.catalogNumber ? ` • ${item.catalogNumber}` : ''}{item.manufacturer ? ` • ${item.manufacturer}` : ''}
-              </span>
+        {items.map(item => {
+          const props = (item.properties || {}) as Record<string, any>;
+          // Build extra info based on category
+          const extraInfo: string[] = [];
+          if (item.category === 'antibody') {
+            if (props.host) extraInfo.push(`Host: ${props.host}`);
+            if (props.westernDilution) extraInfo.push(`WB: ${props.westernDilution}`);
+          } else if (item.category === 'cell_line') {
+            if (props.species) extraInfo.push(`Species: ${props.species}`);
+            if (props.medium) extraInfo.push(`Medium: ${props.medium}`);
+          } else if (item.category === 'plasmid') {
+            if (props.backbone) extraInfo.push(`Backbone: ${props.backbone}`);
+            if (props.drugResistance) extraInfo.push(`Resistance: ${props.drugResistance}`);
+          } else if (item.category === 'primer') {
+            if (props.sequence) extraInfo.push(`Seq: ${String(props.sequence).substring(0, 20)}${String(props.sequence).length > 20 ? '...' : ''}`);
+            if (props.tm) extraInfo.push(`Tm: ${props.tm}`);
+          } else if (item.category === 'reagent') {
+            if (props.stockConcentration) extraInfo.push(`Stock: ${props.stockConcentration}`);
+            if (props.casNo) extraInfo.push(`CAS: ${props.casNo}`);
+          }
+          
+          return (
+            <div key={item.id} style={styles.listItem}>
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                <span style={styles.listItemTitle}>{item.name}</span>
+                <span style={styles.listItemMeta}>
+                  {formatCategory(item.category)}{item.catalogNumber ? ` • Cat#: ${item.catalogNumber}` : ''}{item.manufacturer ? ` • ${item.manufacturer}` : ''}
+                </span>
+                {extraInfo.length > 0 && (
+                  <span style={{ ...styles.listItemMeta, fontSize: 11, marginTop: 2, opacity: 0.7 }}>
+                    {extraInfo.join(' | ')}
+                  </span>
+                )}
+                {item.description && (
+                  <span style={{ ...styles.listItemMeta, fontSize: 11, marginTop: 2, fontStyle: 'italic', opacity: 0.6 }}>
+                    {item.description.length > 100 ? item.description.substring(0, 100) + '...' : item.description}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontWeight: 600 }}>
+                  {totalQuantity(item)}{item.unit ? ` ${item.unit}` : ''}
+                </span>
+                <button
+                  style={styles.secondaryButton}
+                  onClick={() => {
+                    setDetailsItem(item);
+                    setDetailsProperties((item.properties as any) || {});
+                  }}
+                >
+                  Edit Details
+                </button>
+                <button style={styles.secondaryButton} onClick={() => setStockItemId(item.id)}>Add Stock</button>
+              </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontWeight: 600 }}>
-                {totalQuantity(item)}{item.unit ? ` ${item.unit}` : ''}
-              </span>
-              <button
-                style={styles.secondaryButton}
-                onClick={() => {
-                  setDetailsItem(item);
-                  setDetailsProperties((item.properties as any) || {});
-                }}
-              >
-                Edit Details
-              </button>
-              <button style={styles.secondaryButton} onClick={() => setStockItemId(item.id)}>Add Stock</button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
