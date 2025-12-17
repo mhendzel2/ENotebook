@@ -89,7 +89,8 @@ export function ReportUploader({
         },
         body: JSON.stringify({
           filename: file.name,
-          mime: file.type || 'application/octet-stream',
+          // Many Windows/Electron drops provide empty MIME types; let the server infer from filename.
+          mime: (file.type && file.type !== 'application/octet-stream') ? file.type : undefined,
           data: base64Data,
           reportType: selectedType,
           notes: notes || undefined

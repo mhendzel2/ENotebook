@@ -635,6 +635,16 @@ function ExperimentForm({ user, methods, onClose, onSaved }: {
         <form onSubmit={handleSubmit} style={styles.form}>
           <div style={styles.formRow}>
             <div style={styles.formField}>
+              <label style={styles.formLabel}>Project</label>
+              <input
+                type="text"
+                value={project}
+                onChange={e => setProject(e.target.value)}
+                style={styles.formInput}
+                placeholder="Project name"
+              />
+            </div>
+            <div style={styles.formField}>
               <label style={styles.formLabel}>Title *</label>
               <input
                 type="text"
@@ -643,16 +653,6 @@ function ExperimentForm({ user, methods, onClose, onSaved }: {
                 style={styles.formInput}
                 required
                 placeholder="Experiment title"
-              />
-            </div>
-            <div style={styles.formField}>
-              <label style={styles.formLabel}>Project</label>
-              <input
-                type="text"
-                value={project}
-                onChange={e => setProject(e.target.value)}
-                style={styles.formInput}
-                placeholder="Project name"
               />
             </div>
           </div>
@@ -829,6 +829,16 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={styles.formRow}>
               <div style={styles.formField}>
+                <label style={styles.formLabel}>Project</label>
+                <input
+                  type="text"
+                  value={project}
+                  onChange={e => setProject(e.target.value)}
+                  style={styles.formInput}
+                  placeholder="Project name"
+                />
+              </div>
+              <div style={styles.formField}>
                 <label style={styles.formLabel}>Title *</label>
                 <input
                   type="text"
@@ -837,16 +847,6 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
                   style={styles.formInput}
                   required
                   placeholder="Experiment title"
-                />
-              </div>
-              <div style={styles.formField}>
-                <label style={styles.formLabel}>Project</label>
-                <input
-                  type="text"
-                  value={project}
-                  onChange={e => setProject(e.target.value)}
-                  style={styles.formInput}
-                  placeholder="Project name"
                 />
               </div>
             </div>

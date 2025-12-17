@@ -217,7 +217,10 @@ export function createReportRoutes(prisma: PrismaClient): Router {
       }
 
       // Validate MIME type
-      const mimeType = mime || guessMimeType(filename);
+      const incomingMime = (typeof mime === 'string' && mime.trim() && mime !== 'application/octet-stream')
+        ? mime.trim()
+        : '';
+      const mimeType = incomingMime || guessMimeType(filename);
       if (!REPORT_ALLOWED_MIME_TYPES.includes(mimeType)) {
         return res.status(400).json({ 
           error: `File type not allowed: ${mimeType}`,
