@@ -801,6 +801,9 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
 
           const upsertStock = async (itemId: string, qty: number) => {
             if (!Number.isFinite(qty) || qty <= 0) return;
+            // Verify the item exists before creating stock (avoids FK violation)
+            const itemExists = await prisma.inventoryItem.findUnique({ where: { id: itemId }, select: { id: true } });
+            if (!itemExists) return;
             const stockId = uuidv5(`stock:${itemId}:${locationId}`, ACCESS_IMPORT_NAMESPACE);
             await prisma.stock.upsert({
               where: { id: stockId },
