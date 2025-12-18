@@ -16,8 +16,15 @@ export interface AuthUser {
   token?: string;
 }
 
+const ROLE_LABELS: Record<string, { label: string; color: string; bgColor: string }> = {
+  admin: { label: 'Administrator', color: '#dc2626', bgColor: '#fef2f2' },
+  manager: { label: 'Lab Manager', color: '#d97706', bgColor: '#fffbeb' },
+  member: { label: 'Lab Member', color: '#2563eb', bgColor: '#eff6ff' },
+};
+
 export function LoginPage({ onLogin, onCreateAccount, existingUser, onContinueExistingUser, onSwitchUser }: LoginPageProps) {
   const [email, setEmail] = useState('');
+  const [isAdminLogin, setIsAdminLogin] = useState(false);
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -40,6 +47,12 @@ export function LoginPage({ onLogin, onCreateAccount, existingUser, onContinueEx
       }
 
       const user = await response.json();
+      
+      // If admin login mode, verify user is admin or manager
+      if (isAdminLogin && user.role !== 'admin' && user.role !== 'manager') {
+        throw new Error('Access denied. Administrator or Manager credentials required.');
+      }
+      
       localStorage.setItem('eln-user', JSON.stringify(user));
       onLogin(user);
     } catch (err) {
@@ -58,13 +71,30 @@ export function LoginPage({ onLogin, onCreateAccount, existingUser, onContinueEx
         </div>
 
         <form onSubmit={handleSubmit} style={styles.form}>
-          <h2 style={styles.title}>Sign In</h2>
+          <h2 style={styles.title}>{isAdminLogin ? '🔐 Admin / Manager Sign In' : 'Sign In'}</h2>
+
+          {isAdminLogin && (
+            <div style={styles.adminBanner}>
+              <span style={styles.adminBannerIcon}>⚠️</span>
+              <span>Administrative access requires Manager or Administrator credentials</span>
+            </div>
+          )}
 
           {existingUser && (
             <div style={styles.sessionBanner}>
               <div style={styles.sessionText}>
                 Signed in as <strong>{existingUser.name}</strong>
                 {existingUser.email ? ` (${existingUser.email})` : ''}
+                {existingUser.role && (
+                  <span style={{
+                    ...styles.roleBadge,
+                    marginLeft: 8,
+                    background: ROLE_LABELS[existingUser.role]?.bgColor || '#f1f5f9',
+                    color: ROLE_LABELS[existingUser.role]?.color || '#64748b',
+                  }}>
+                    {ROLE_LABELS[existingUser.role]?.label || existingUser.role}
+                  </span>
+                )}
               </div>
               <div style={styles.sessionActions}>
                 <button
@@ -126,6 +156,14 @@ export function LoginPage({ onLogin, onCreateAccount, existingUser, onContinueEx
             style={styles.secondaryButton}
           >
             Create New Account
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsAdminLogin(!isAdminLogin)}
+            style={styles.adminToggleButton}
+          >
+            {isAdminLogin ? '← Back to Regular Sign In' : '🔐 Administrator Login'}
           </button>
         </form>
 
@@ -417,6 +455,39 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#94a3b8',
     fontSize: 12,
     marginTop: 24,
+  },
+  adminBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '12px 14px',
+    background: '#fef3c7',
+    color: '#92400e',
+    borderRadius: 8,
+    fontSize: 13,
+    border: '1px solid #fcd34d',
+  },
+  adminBannerIcon: {
+    fontSize: 16,
+  },
+  adminToggleButton: {
+    padding: '10px 16px',
+    fontSize: 14,
+    fontWeight: 500,
+    color: '#64748b',
+    background: 'transparent',
+    border: '1px dashed #cbd5e1',
+    borderRadius: 8,
+    cursor: 'pointer',
+    marginTop: 8,
+    transition: 'all 0.2s',
+  },
+  roleBadge: {
+    display: 'inline-block',
+    padding: '4px 10px',
+    borderRadius: 12,
+    fontSize: 12,
+    fontWeight: 600,
   },
 };
 

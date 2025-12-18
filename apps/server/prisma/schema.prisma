@@ -61,17 +61,19 @@ model Method {
 }
 
 model Experiment {
-  id             String   @id @default(uuid())
-  title          String
-  project        String?
-  modality       Modality
-  protocolRef    String?
-  protocol       Method?  @relation("ExperimentProtocol", fields: [protocolRef], references: [id])
-  params         Json?
-  observations   Json?
-  resultsSummary String?
-  dataLink       String?
-  tags           String[]
+  id                  String   @id @default(uuid())
+  title               String
+  project             String?
+  modality            Modality
+  customModality      String?  // For 'other' modality - stores user-defined experiment type
+  protocolRef         String?
+  protocol            Method?  @relation("ExperimentProtocol", fields: [protocolRef], references: [id])
+  params              Json?
+  observations        Json?
+  troubleshootingNotes String? // Separate field for troubleshooting documentation
+  resultsSummary      String?
+  dataLink            String?
+  tags                String[]
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   version        Int      @default(1)
@@ -534,4 +536,6 @@ enum Modality {
   molecular_biology
   biochemistry
   flow_cytometry
+  chemistry
+  other
 }
