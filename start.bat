@@ -23,7 +23,6 @@ if exist "config.local.json" (
 ) 
 if defined DB_TYPE (
     if /i "%DB_TYPE%"=="postgresql" set MODE=server
-    if /i "%DB_TYPE%"=="mysql" set MODE=server
 )
 if "%DB_TYPE%"=="" (
     if exist "apps\server\prisma\dev.db" set MODE=local
@@ -75,8 +74,31 @@ if /i "%MODE%"=="server" (
         echo [INFO] PM2 not found - using development mode
         echo [TIP] Install PM2 for production: npm install -g pm2
         echo.
-        
+
         echo Starting ELN Server...
+
+        :: If something is already listening on port 4000, it may be an older server instance.
+        :: Offer to stop it so the latest code/routes are picked up.
+        set HAS_4000_LISTENER=
+        for /f "tokens=5" %%p in ('netstat -ano ^| findstr :4000 ^| findstr LISTENING') do (
+            set HAS_4000_LISTENER=1
+        )
+
+        if defined HAS_4000_LISTENER (
+            echo [WARNING] Port 4000 is already in use.
+            set /p RESTART_SERVER="Stop existing server on port 4000 and restart? (y/n) [y]: "
+            if "!RESTART_SERVER!"=="" set RESTART_SERVER=y
+            if /i "!RESTART_SERVER!"=="y" (
+                for /f "tokens=5" %%p in ('netstat -ano ^| findstr :4000 ^| findstr LISTENING') do (
+                    echo Stopping PID %%p...
+                    taskkill /PID %%p /F >nul 2>nul
+                )
+            ) else (
+                echo [INFO] Reusing the existing server on port 4000.
+            )
+            echo.
+        )
+
         start "ELN Server" cmd /k "cd /d %INSTALL_DIR%apps\server && npm run dev"
     )
     
@@ -140,6 +162,29 @@ if /i "%MODE%"=="local" (
     
     :: Start local server
     echo Starting local ELN server...
+
+    :: If something is already listening on port 4000, it may be an older server instance.
+    :: Offer to stop it so the latest code/routes are picked up.
+    set HAS_4000_LISTENER=
+    for /f "tokens=5" %%p in ('netstat -ano ^| findstr :4000 ^| findstr LISTENING') do (
+        set HAS_4000_LISTENER=1
+    )
+
+    if defined HAS_4000_LISTENER (
+        echo [WARNING] Port 4000 is already in use.
+        set /p RESTART_LOCAL="Stop existing server on port 4000 and restart? (y/n) [y]: "
+        if "!RESTART_LOCAL!"=="" set RESTART_LOCAL=y
+        if /i "!RESTART_LOCAL!"=="y" (
+            for /f "tokens=5" %%p in ('netstat -ano ^| findstr :4000 ^| findstr LISTENING') do (
+                echo Stopping PID %%p...
+                taskkill /PID %%p /F >nul 2>nul
+            )
+        ) else (
+            echo [INFO] Reusing the existing server on port 4000.
+        )
+        echo.
+    )
+
     start "ELN Local Server" cmd /k "cd /d %INSTALL_DIR%apps\server && npm run dev"
     
     :: Wait for server

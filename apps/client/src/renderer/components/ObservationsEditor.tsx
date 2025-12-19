@@ -15,6 +15,16 @@ import type {
   CellCount 
 } from '@eln/shared';
 import { v4 as uuid } from 'uuid';
+import { 
+  LineChart, 
+  Line, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  Legend, 
+  ResponsiveContainer 
+} from 'recharts';
 
 // ==================== TYPES ====================
 
@@ -22,13 +32,15 @@ interface ObservationsEditorProps {
   value: RichObservations;
   onChange: (value: RichObservations) => void;
   readOnly?: boolean;
+  appendOnly?: boolean; // 21 CFR Part 11 compliance: additions only, no deletions
+  userName?: string; // For tracking who added entries
 }
 
 type ActiveSection = 'narrative' | 'tables' | 'measurements' | 'kinetics' | 'cellCounts' | 'conclusions';
 
 // ==================== MAIN COMPONENT ====================
 
-export function ObservationsEditor({ value, onChange, readOnly }: ObservationsEditorProps) {
+export function ObservationsEditor({ value, onChange, readOnly, appendOnly = false, userName }: ObservationsEditorProps) {
   const [activeSection, setActiveSection] = useState<ActiveSection>('narrative');
 
   const updateField = useCallback(<K extends keyof RichObservations>(
@@ -49,6 +61,11 @@ export function ObservationsEditor({ value, onChange, readOnly }: ObservationsEd
 
   return (
     <div style={styles.container}>
+      {appendOnly && (
+        <div style={styles.complianceBanner}>
+          🔒 Append-Only Mode: New entries can be added but existing data cannot be deleted (21 CFR Part 11)
+        </div>
+      )}
       <div style={styles.tabs}>
         {sections.map(section => (
           <button
@@ -71,6 +88,7 @@ export function ObservationsEditor({ value, onChange, readOnly }: ObservationsEd
             value={value.narrative || ''}
             onChange={v => updateField('narrative', v)}
             readOnly={readOnly}
+            appendOnly={appendOnly}
           />
         )}
 
@@ -79,6 +97,8 @@ export function ObservationsEditor({ value, onChange, readOnly }: ObservationsEd
             tables={value.tables || []}
             onChange={tables => updateField('tables', tables)}
             readOnly={readOnly}
+            appendOnly={appendOnly}
+            userName={userName}
           />
         )}
 
@@ -87,6 +107,8 @@ export function ObservationsEditor({ value, onChange, readOnly }: ObservationsEd
             measurements={value.measurements || []}
             onChange={measurements => updateField('measurements', measurements)}
             readOnly={readOnly}
+            appendOnly={appendOnly}
+            userName={userName}
           />
         )}
 
@@ -95,6 +117,8 @@ export function ObservationsEditor({ value, onChange, readOnly }: ObservationsEd
             data={value.kineticData}
             onChange={data => updateField('kineticData', data)}
             readOnly={readOnly}
+            appendOnly={appendOnly}
+            userName={userName}
           />
         )}
 
@@ -103,6 +127,8 @@ export function ObservationsEditor({ value, onChange, readOnly }: ObservationsEd
             data={value.cellCounts}
             onChange={data => updateField('cellCounts', data)}
             readOnly={readOnly}
+            appendOnly={appendOnly}
+            userName={userName}
           />
         )}
 
@@ -123,15 +149,26 @@ export function ObservationsEditor({ value, onChange, readOnly }: ObservationsEd
 function NarrativeEditor({ 
   value, 
   onChange, 
-  readOnly 
+  readOnly,
+  appendOnly 
 }: { 
   value: string; 
   onChange: (v: string) => void; 
   readOnly?: boolean;
+  appendOnly?: boolean;
 }) {
   // In a real implementation, this would use a rich text editor like TipTap, Slate, or Quill
   // For now, we provide a textarea with basic markdown-style formatting
   const [preview, setPreview] = useState(false);
+  const [newEntry, setNewEntry] = useState('');
+
+  const handleAppend = () => {
+    if (!newEntry.trim()) return;
+    const timestamp = new Date().toISOString();
+    const formattedEntry = `\n\n---\n**[${new Date(timestamp).toLocaleString()}]**\n${newEntry}`;
+    onChange(value + formattedEntry);
+    setNewEntry('');
+  };
 
   return (
     <div style={styles.section}>
@@ -147,20 +184,50 @@ function NarrativeEditor({
       
       {!preview ? (
         <>
-          <div style={styles.toolbar}>
-            <button style={styles.toolbarButton} title="Bold">B</button>
-            <button style={styles.toolbarButton} title="Italic">I</button>
-            <button style={styles.toolbarButton} title="Heading">H</button>
-            <button style={styles.toolbarButton} title="List">•</button>
-            <button style={styles.toolbarButton} title="Link">🔗</button>
-          </div>
-          <textarea
-            value={value}
-            onChange={e => onChange(e.target.value)}
-            readOnly={readOnly}
-            placeholder="Enter your observations here. Supports markdown formatting..."
-            style={styles.richTextArea}
-          />
+          {appendOnly ? (
+            // Append-only mode: show existing content as read-only, with an input to add new entries
+            <>
+              <div style={styles.existingContent}>
+                <label style={styles.label}>Existing Observations (read-only):</label>
+                <div 
+                  style={styles.readOnlyContent}
+                  dangerouslySetInnerHTML={{ __html: simpleMarkdownToHtml(value) || '<em>No observations yet</em>' }}
+                />
+              </div>
+              {!readOnly && (
+                <div style={styles.appendSection}>
+                  <label style={styles.label}>Add New Entry:</label>
+                  <textarea
+                    value={newEntry}
+                    onChange={e => setNewEntry(e.target.value)}
+                    placeholder="Add a new observation entry (will be timestamped)..."
+                    style={styles.richTextArea}
+                  />
+                  <button onClick={handleAppend} style={styles.addButton} disabled={!newEntry.trim()}>
+                    + Add Entry (Timestamped)
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
+            // Standard edit mode
+            <>
+              <div style={styles.toolbar}>
+                <button style={styles.toolbarButton} title="Bold">B</button>
+                <button style={styles.toolbarButton} title="Italic">I</button>
+                <button style={styles.toolbarButton} title="Heading">H</button>
+                <button style={styles.toolbarButton} title="List">•</button>
+                <button style={styles.toolbarButton} title="Link">🔗</button>
+              </div>
+              <textarea
+                value={value}
+                onChange={e => onChange(e.target.value)}
+                readOnly={readOnly}
+                placeholder="Enter your observations here. Supports markdown formatting..."
+                style={styles.richTextArea}
+              />
+            </>
+          )}
         </>
       ) : (
         <div 
@@ -598,13 +665,64 @@ function KineticsEditor({
         </table>
       )}
 
-      {/* Simple ASCII chart visualization */}
+      {/* Interactive Line Chart Visualization */}
       {kineticData.timePoints.length > 0 && kineticData.datasets.length > 0 && (
-        <div style={styles.chartPlaceholder}>
-          <p>📈 Chart visualization would render here</p>
-          <p style={{ fontSize: 12, color: '#64748b' }}>
-            ({kineticData.datasets.length} dataset(s), {kineticData.timePoints.length} time points)
-          </p>
+        <div style={{ width: '100%', height: 300, marginTop: 20 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={kineticData.timePoints.map((time, index) => {
+                const point: Record<string, number> = { time };
+                kineticData.datasets.forEach(ds => {
+                  point[ds.label] = ds.values[index] ?? 0;
+                });
+                return point;
+              })}
+              margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <XAxis 
+                dataKey="time" 
+                label={{ 
+                  value: kineticData.xLabel, 
+                  position: 'insideBottomRight', 
+                  offset: -10,
+                  style: { fontSize: 12, fill: '#64748b' }
+                }}
+                tick={{ fontSize: 11, fill: '#64748b' }}
+              />
+              <YAxis 
+                label={{ 
+                  value: kineticData.yLabel, 
+                  angle: -90, 
+                  position: 'insideLeft',
+                  style: { fontSize: 12, fill: '#64748b' }
+                }}
+                tick={{ fontSize: 11, fill: '#64748b' }}
+              />
+              <Tooltip 
+                contentStyle={{ 
+                  backgroundColor: '#fff', 
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 6,
+                  fontSize: 12
+                }}
+              />
+              <Legend 
+                wrapperStyle={{ fontSize: 12 }}
+              />
+              {kineticData.datasets.map((ds, i) => (
+                <Line 
+                  key={i} 
+                  type="monotone" 
+                  dataKey={ds.label} 
+                  stroke={ds.color || generateColor(i)} 
+                  strokeWidth={2}
+                  dot={{ r: 4, fill: ds.color || generateColor(i) }}
+                  activeDot={{ r: 6, strokeWidth: 2 }} 
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       )}
     </div>

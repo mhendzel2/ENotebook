@@ -294,8 +294,8 @@ export class LocalSyncService {
       this.savePendingChanges(filteredPending);
 
       return {
-        pushed: result.applied?.length || 0,
-        conflicts: result.conflicts?.length || 0
+        pushed: (result as any).applied?.length || 0,
+        conflicts: (result as any).conflicts?.length || 0
       };
     } catch (error) {
       console.error('[LocalSync] Push error:', error);
@@ -331,7 +331,7 @@ export class LocalSyncService {
         throw new Error(`Pull failed: ${response.status}`);
       }
 
-      const data = await response.json();
+      const data = await response.json() as { methods?: any[]; experiments?: any[] };
       let pulled = 0;
 
       // Merge methods
@@ -464,7 +464,7 @@ export class LocalSyncService {
     console.log(`[LocalSync] Export date: ${data.exportedAt}`);
 
     // Import in transaction
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx: any) => {
       // Import users
       for (const user of data.users || []) {
         await tx.user.upsert({

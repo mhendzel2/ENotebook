@@ -141,12 +141,12 @@ export class SignatureService {
         observations: experiment.observations,
         resultsSummary: experiment.resultsSummary,
         version: experiment.version,
-        attachments: experiment.attachments.map(a => ({
+        attachments: experiment.attachments.map((a: any) => ({
           id: a.id,
           filename: a.filename,
           size: a.size,
         })),
-        stockUsages: experiment.stockUsages.map(s => ({
+        stockUsages: experiment.stockUsages.map((s: any) => ({
           stockId: s.stockId,
           quantityUsed: s.quantityUsed,
         })),

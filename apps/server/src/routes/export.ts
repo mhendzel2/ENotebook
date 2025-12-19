@@ -98,12 +98,12 @@ export function createExportRoutes(prisma: PrismaClient): Router {
         }
       });
       
-      // Parse JSON fields
-      const parsed = experiments.map(e => ({
+      // Parse JSON fields (Prisma returns JSON fields as objects, not strings)
+      const parsed = experiments.map((e: any) => ({
         ...e,
-        params: e.params ? JSON.parse(e.params) : undefined,
-        observations: e.observations ? JSON.parse(e.observations) : undefined,
-        tags: e.tags ? JSON.parse(e.tags) : []
+        params: e.params ?? undefined,
+        observations: e.observations ?? undefined,
+        tags: e.tags ?? []
       }));
       
       // Return in requested format
@@ -156,11 +156,11 @@ export function createExportRoutes(prisma: PrismaClient): Router {
       
       const methods = await prisma.method.findMany({ where });
       
-      const parsed = methods.map(m => ({
+      const parsed = methods.map((m: any) => ({
         ...m,
-        steps: JSON.parse(m.steps),
-        reagents: m.reagents ? JSON.parse(m.reagents) : undefined,
-        attachments: m.attachments ? JSON.parse(m.attachments) : undefined
+        steps: m.steps,
+        reagents: m.reagents ?? undefined,
+        attachments: m.attachments ?? undefined
       }));
       
       switch (format) {
@@ -198,7 +198,7 @@ export function createExportRoutes(prisma: PrismaClient): Router {
         }
       });
       
-      const parsed = items.map(item => ({
+      const parsed = items.map((item: any) => ({
         ...item,
         properties: item.properties ? JSON.parse(item.properties) : undefined
       }));
@@ -245,7 +245,7 @@ export function createExportRoutes(prisma: PrismaClient): Router {
         orderBy: { createdAt: 'desc' }
       });
       
-      const parsed = logs.map(log => ({
+      const parsed = logs.map((log: any) => ({
         ...log,
         oldValue: log.oldValue ? JSON.parse(log.oldValue) : undefined,
         newValue: log.newValue ? JSON.parse(log.newValue) : undefined
@@ -287,27 +287,27 @@ export function createExportRoutes(prisma: PrismaClient): Router {
         prisma.user.findMany({ select: { id: true, name: true, email: true, role: true, createdAt: true } })
       ]);
       
-      // Parse JSON fields
+      // Parse JSON fields (Prisma JSON fields are already objects)
       const exportData = {
         exportedAt: new Date().toISOString(),
         exportedBy: user.id,
         version: '1.0',
         data: {
-          experiments: experiments.map(e => ({
+          experiments: experiments.map((e: any) => ({
             ...e,
-            params: e.params ? JSON.parse(e.params) : undefined,
-            observations: e.observations ? JSON.parse(e.observations) : undefined,
-            tags: e.tags ? JSON.parse(e.tags) : []
+            params: e.params ?? undefined,
+            observations: e.observations ?? undefined,
+            tags: e.tags ?? []
           })),
-          methods: methods.map(m => ({
+          methods: methods.map((m: any) => ({
             ...m,
-            steps: JSON.parse(m.steps),
-            reagents: m.reagents ? JSON.parse(m.reagents) : undefined,
-            attachments: m.attachments ? JSON.parse(m.attachments) : undefined
+            steps: m.steps,
+            reagents: m.reagents ?? undefined,
+            attachments: m.attachments ?? undefined
           })),
-          inventory: inventory.map(item => ({
+          inventory: inventory.map((item: any) => ({
             ...item,
-            properties: item.properties ? JSON.parse(item.properties) : undefined
+            properties: item.properties ?? undefined
           })),
           locations,
           users

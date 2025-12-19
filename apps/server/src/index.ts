@@ -4,17 +4,13 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import crypto from 'crypto';
 import http from 'http';
-import { z } from 'zod';
-import { v4 as uuid } from 'uuid';
 import { PrismaClient } from '@prisma/client';
-import { 
-  Experiment, Method, User, Role, 
-  MODALITIES, INVENTORY_CATEGORIES, STOCK_STATUSES, EXPERIMENT_STATUSES, SIGNATURE_TYPES 
-} from '@eln/shared';
+import type { User } from '@eln/shared/dist/types.js';
 import { createApiKeyRoutes, apiKeyAuth, requirePermission as apiKeyRequirePermission } from './middleware/apiKey.js';
 import { createExportRoutes } from './routes/export.js';
 import { createAuthRoutes } from './routes/auth.js';
-import { requirePermission, requireAllPermissions } from './middleware/permissions.js';
+import { createAttachmentRoutes } from './routes/attachments.js';
+import { createReportRoutes } from './routes/reports.js';
 import { createSignatureRoutes, SignatureService } from './services/signatures.js';
 import { createAuditRoutes, AuditTrailService } from './services/auditTrail.js';
 import { createElnExportRoutes } from './services/elnExport.js';
@@ -26,13 +22,22 @@ import { DashboardService, createDashboardRoutes } from './services/dashboard.js
 import { SamplePoolService, createPoolRoutes } from './services/pools.js';
 // Developer & Integration tools
 import { createGraphQLRoutes } from './services/graphql.js';
-import { createMobileRoutes } from './services/mobile.js';
+import { createMobileRoutes, MobileService } from './services/mobile.js';
 import { createMLAnalyticsRoutes } from './services/mlAnalytics.js';
+import { createExperimentsRoutes } from './routes/experiments.js';
+import { createMethodsRoutes } from './routes/methods.js';
+import { createAdminRoutes } from './routes/admin.js';
+import { createSyncRoutes } from './routes/sync.js';
+import { createNotificationsRoutes } from './routes/notifications.js';
+import { createAuditLogRoutes } from './routes/auditLog.js';
+import { createInventoryRoutes } from './routes/inventory.js';
+import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 
 const prisma = new PrismaClient();
 
 const app = express();
 const server = http.createServer(app);
+
 
 // Initialize WebSocket collaboration
 const collaboration = new CollaborationManager(server, prisma);
@@ -47,7 +52,9 @@ const labelService = new LabelService(prisma);
 const dashboardService = new DashboardService(prisma);
 const poolService = new SamplePoolService(prisma);
 
-app.use(express.json({ limit: '10mb' }));
+// Access MDB imports are uploaded as base64 JSON; base64 expands payload size by ~33%.
+// Keep this above the import route's 50MB raw-file cap.
+app.use(express.json({ limit: '100mb' }));
 app.use(cors());
 app.use(helmet());
 app.use(morgan('dev'));
@@ -70,7 +77,7 @@ app.use(async (req, res, next) => {
       const keyHash = crypto.createHash('sha256').update(apiKey).digest('hex');
       
       const apiKeyRecord = await prisma.aPIKey.findFirst({
-        where: { keyHash, active: true },
+        where: { keyHash, revokedAt: null },
         include: { user: true }
       });
       
@@ -134,6 +141,12 @@ app.use(createAuditRoutes(prisma));
 // ==================== ELN EXPORT (RO-CRATE/.eln) ====================
 app.use(createElnExportRoutes(prisma));
 
+// ==================== ATTACHMENTS (IMAGES, SPREADSHEETS) ====================
+app.use(createAttachmentRoutes(prisma));
+
+// ==================== REPORTS (FRAP, SPT, etc.) ====================
+app.use(createReportRoutes(prisma));
+
 // ==================== AUTOMATION WORKFLOWS ====================
 app.use(createWorkflowRoutes(prisma, workflowEngine));
 
@@ -150,63 +163,100 @@ app.use(createPoolRoutes(prisma, poolService));
 app.use('/api/graphql', createGraphQLRoutes(prisma));
 
 // ==================== MOBILE COMPANION API ====================
-app.use('/api/mobile', createMobileRoutes(prisma));
+const mobileService = new MobileService(prisma);
+app.use('/api/mobile', createMobileRoutes(prisma, mobileService));
 
 // ==================== ML ANALYTICS ====================
 app.use('/api/ml', createMLAnalyticsRoutes());
 
-const methodSchema = z.object({
-  title: z.string().min(1),
-  category: z.string().optional(),
-  steps: z.any(),
-  reagents: z.any().optional(),
-  attachments: z.any().optional(),
-  isPublic: z.boolean().default(true)
+// ==================== ENHANCED AUDIT LOGGING ====================
+
+async function logChange(
+  entityType: string,
+  entityId: string,
+  operation: string,
+  oldValue?: any,
+  newValue?: any,
+  fieldName?: string,
+  deviceId?: string
+) {
+  await prisma.changeLog.create({
+    data: {
+      entityType,
+      entityId,
+      operation,
+      oldValue: oldValue ? JSON.stringify(oldValue) : undefined,
+      newValue: newValue ? JSON.stringify(newValue) : undefined,
+      fieldName,
+      deviceId
+    }
+  });
+}
+
+// ==================== CORE APP ROUTES ====================
+
+app.use(createMethodsRoutes(prisma, logChange));
+app.use(createExperimentsRoutes(prisma, logChange));
+app.use(createAdminRoutes(prisma));
+app.use(createSyncRoutes(prisma));
+app.use(createNotificationsRoutes(prisma));
+app.use(createAuditLogRoutes(prisma));
+app.use(createInventoryRoutes(prisma));
+
+// ==================== NOT FOUND + ERROR HANDLING ====================
+
+app.use(notFoundHandler);
+app.use(errorHandler);
+
+const port = process.env.PORT || 4000;
+server.listen(port, () => {
+  // eslint-disable-next-line no-console
+  console.log(`ELN server listening on http://localhost:${port}`);
+  console.log(`WebSocket server ready for real-time collaboration`);
 });
 
-app.get('/methods', async (_req, res) => {
-  try {
-    const methods = await prisma.method.findMany();
-    // Parse JSON fields
-    const parsedMethods = methods.map(m => ({
-      ...m,
-      steps: JSON.parse(m.steps),
-      reagents: m.reagents ? JSON.parse(m.reagents) : undefined,
-      attachments: m.attachments ? JSON.parse(m.attachments) : undefined
-    }));
-    res.json(parsedMethods);
-  } catch (error) {
-    res.status(500).json({ error: 'Database error' });
-  }
-});
+// Export collaboration manager for use in routes
+export { collaboration };
 
-app.post('/methods', async (req, res) => {
-  const parse = methodSchema.safeParse(req.body);
+/*
+ * LEGACY INLINE ROUTES
+ *
+ * These routes were extracted into modular routers under src/routes/.
+ * They are intentionally disabled to avoid duplicate route registrations.
+
+
+app.patch('/methods/:id', async (req, res) => {
+  const user = (req as any).user as User;
+  const parse = methodUpdateSchema.safeParse(req.body);
+
   if (!parse.success) {
     return res.status(400).json({ error: parse.error.flatten() });
   }
-  const user = (req as any).user as User;
-  
+
+  const methodId = req.params.id;
+
   try {
+    const existing = await prisma.method.findUnique({ where: { id: methodId } });
+    if (!existing) return res.status(404).json({ error: 'Method not found' });
+
+    const canEdit = user.role === 'manager' || user.role === 'admin' || existing.createdBy === user.id;
+    if (!canEdit) return res.status(403).json({ error: 'Not authorized to edit this method' });
+
     const { steps, reagents, attachments, ...rest } = parse.data;
-    const method = await prisma.method.create({
-      data: {
-        createdBy: user.id,
-        version: 1,
-        ...rest,
-        steps: JSON.stringify(steps),
-        reagents: reagents ? JSON.stringify(reagents) : undefined,
-        attachments: attachments ? JSON.stringify(attachments) : undefined
-      }
-    });
-    res.status(201).json({
-      ...method,
-      steps: JSON.parse(method.steps),
-      reagents: method.reagents ? JSON.parse(method.reagents) : undefined,
-      attachments: method.attachments ? JSON.parse(method.attachments) : undefined
-    });
+    const updateData: any = { ...rest };
+    if (steps !== undefined) updateData.steps = steps;
+    if (reagents !== undefined) updateData.reagents = reagents || undefined;
+    if (attachments !== undefined) updateData.attachments = attachments || undefined;
+    updateData.version = (existing.version || 1) + 1;
+
+    const updated = await prisma.method.update({ where: { id: methodId }, data: updateData });
+
+    await logChange('methods', methodId, 'update', existing, updated);
+
+    res.json(updated);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to save method' });
+    console.error('Failed to update method:', error);
+    res.status(500).json({ error: 'Failed to update method' });
   }
 });
 
@@ -218,27 +268,249 @@ const experimentSchema = z.object({
   params: z.any().optional(),
   observations: z.any().optional(),
   resultsSummary: z.string().optional(),
-  dataLink: z.string().url().optional(),
+  dataLink: z.string().optional(), // Supports URLs or file paths (multiple paths separated by newlines)
   tags: z.array(z.string()).optional(),
   status: z.enum(EXPERIMENT_STATUSES).default('draft')
+});
+
+const experimentUpdateSchema = experimentSchema.partial().refine(
+  (val) => Object.keys(val).length > 0,
+  { message: 'At least one field must be provided for update' }
+);
+
+function coerceQueryString(value: unknown, maxLen: number): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, maxLen);
+}
+
+function coerceQueryInt(value: unknown, defaultValue: number, min: number, max: number): number {
+  if (typeof value !== 'string') return defaultValue;
+  const n = Number.parseInt(value, 10);
+  if (!Number.isFinite(n)) return defaultValue;
+  return Math.max(min, Math.min(max, n));
+}
+
+function safeSingleLineSnippet(text: string, maxLen: number): string {
+  return text.replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, maxLen);
+}
+
+const searchResultsLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const userId = (req as any).user?.id;
+    return userId || req.ip || 'anonymous';
+  }
 });
 
 // 1. Replace GET /experiments with Prisma
 app.get('/experiments', async (req, res) => {
   const user = (req as any).user as User;
   try {
-    const where = user.role === 'manager' ? {} : { userId: user.id };
+    const where = user.role === 'manager' || user.role === 'admin' ? {} : { userId: user.id };
     const data = await prisma.experiment.findMany({ where });
-    // Parse JSON fields
-    const parsedData = data.map(e => ({
-      ...e,
-      params: e.params ? JSON.parse(e.params) : undefined,
-      observations: e.observations ? JSON.parse(e.observations) : undefined,
-      tags: e.tags ? JSON.parse(e.tags) : []
-    }));
-    res.json(parsedData);
+    res.json(data);
   } catch (error) {
+    console.error('Failed to get experiments:', error);
     res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// GET single experiment with all related data (attachments, reports, etc.)
+app.get('/experiments/:id', async (req, res) => {
+  const user = (req as any).user as User;
+  const { id } = req.params;
+  
+  try {
+    const experiment = await prisma.experiment.findUnique({
+      where: { id },
+      include: {
+        attachments: true,
+        reports: true,
+        signatures: {
+          include: {
+            user: { select: { id: true, name: true, email: true } }
+          }
+        },
+        comments: {
+          include: {
+            author: { select: { id: true, name: true } }
+          },
+          orderBy: { createdAt: 'desc' }
+        },
+        stockUsages: {
+          include: {
+            stock: {
+              include: {
+                item: { select: { name: true, catalogNumber: true } }
+              }
+            }
+          }
+        },
+        user: { select: { id: true, name: true, email: true } }
+      }
+    });
+    
+    if (!experiment) {
+      return res.status(404).json({ error: 'Experiment not found' });
+    }
+    
+    // Check authorization
+    const canView = user.role === 'manager' || user.role === 'admin' || experiment.userId === user.id;
+    if (!canView) {
+      return res.status(403).json({ error: 'Not authorized to view this experiment' });
+    }
+    
+    res.json(experiment);
+  } catch (error) {
+    console.error('Failed to get experiment:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Experimental results search across experiments + reports
+// GET /search/results?q=...&types=experiments,reports&limit=25&offset=0
+app.get('/search/results', searchResultsLimiter, async (req, res) => {
+  const user = (req as any).user as User;
+
+  const q = coerceQueryString(req.query.q, 200);
+  if (!q) return res.status(400).json({ error: 'Missing query parameter: q' });
+
+  const limit = coerceQueryInt(req.query.limit, 25, 1, 50);
+  const offset = coerceQueryInt(req.query.offset, 0, 0, 5000);
+  const typesRaw = coerceQueryString(req.query.types, 100);
+  const types = (typesRaw ? typesRaw.split(',') : ['experiments', 'reports'])
+    .map(t => t.trim().toLowerCase())
+    .filter(Boolean);
+  const includeExperiments = types.includes('experiments') || types.includes('experiment');
+  const includeReports = types.includes('reports') || types.includes('report');
+
+  const qLower = q.toLowerCase();
+  const experimentAccessWhere = user.role === 'manager' || user.role === 'admin' ? {} : { userId: user.id };
+
+  type SearchResult =
+    | {
+        type: 'experiment';
+        experimentId: string;
+        title: string;
+        project: string | null;
+        updatedAt: Date;
+        snippet: string;
+      }
+    | {
+        type: 'report';
+        reportId: string;
+        experimentId: string;
+        title: string;
+        project: string | null;
+        updatedAt: Date;
+        reportType: string;
+        filename: string;
+        snippet: string;
+      };
+
+  const matches: SearchResult[] = [];
+
+  try {
+    if (includeExperiments) {
+      const scanExperimentLimit = 2000;
+      const experiments = await prisma.experiment.findMany({
+        where: experimentAccessWhere,
+        orderBy: { updatedAt: 'desc' },
+        take: scanExperimentLimit,
+        select: {
+          id: true,
+          title: true,
+          project: true,
+          resultsSummary: true,
+          observations: true,
+          tags: true,
+          updatedAt: true
+        }
+      });
+
+      for (const exp of experiments) {
+        const parts: string[] = [];
+        parts.push(exp.title);
+        if (exp.project) parts.push(exp.project);
+        if (exp.resultsSummary) parts.push(exp.resultsSummary);
+        if (Array.isArray(exp.tags)) parts.push(exp.tags.join(' '));
+
+        if (exp.observations !== null && exp.observations !== undefined) {
+          try {
+            const obsStr = typeof exp.observations === 'string' ? exp.observations : JSON.stringify(exp.observations);
+            if (obsStr) parts.push(obsStr.slice(0, 20000));
+          } catch {
+            // ignore non-serializable observations
+          }
+        }
+
+        const haystack = parts.join('\n');
+        if (!haystack.toLowerCase().includes(qLower)) continue;
+
+        const snippetSource = exp.resultsSummary || (typeof exp.observations === 'string' ? exp.observations : '') || haystack;
+        matches.push({
+          type: 'experiment',
+          experimentId: exp.id,
+          title: exp.title,
+          project: exp.project,
+          updatedAt: exp.updatedAt,
+          snippet: safeSingleLineSnippet(String(snippetSource), 220)
+        });
+      }
+    }
+
+    if (includeReports) {
+      const scanReportLimit = 2000;
+      const reports = await prisma.report.findMany({
+        where: { experiment: experimentAccessWhere },
+        orderBy: { updatedAt: 'desc' },
+        take: scanReportLimit,
+        include: { experiment: { select: { id: true, title: true, project: true } } }
+      });
+
+      for (const report of reports) {
+        const text = [
+          report.reportType,
+          report.filename,
+          report.originalFilename || '',
+          report.notes || ''
+        ].join('\n');
+        if (!text.toLowerCase().includes(qLower)) continue;
+
+        matches.push({
+          type: 'report',
+          reportId: report.id,
+          experimentId: report.experimentId,
+          title: report.experiment.title,
+          project: report.experiment.project,
+          updatedAt: report.updatedAt,
+          reportType: report.reportType,
+          filename: report.originalFilename || report.filename,
+          snippet: safeSingleLineSnippet(report.notes || `${report.reportType}: ${report.originalFilename || report.filename}`, 220)
+        });
+      }
+    }
+
+    matches.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+    const paged = matches.slice(offset, offset + limit);
+
+    res.json({
+      query: q,
+      types: { experiments: includeExperiments, reports: includeReports },
+      limit,
+      offset,
+      returned: paged.length,
+      totalApprox: matches.length,
+      results: paged.map(r => ({ ...r, updatedAt: r.updatedAt.toISOString() }))
+    });
+  } catch (error) {
+    console.error('Failed to search results:', error);
+    res.status(500).json({ error: 'Search failed' });
   }
 });
 
@@ -252,25 +524,281 @@ app.post('/experiments', async (req, res) => {
   }
 
   try {
-    const { params, observations, tags, ...rest } = parse.data;
+    const { tags, ...rest } = parse.data;
     const experiment = await prisma.experiment.create({
       data: {
         userId: user.id,
         version: 1,
         ...rest,
-        params: params ? JSON.stringify(params) : undefined,
-        observations: observations ? JSON.stringify(observations) : undefined,
-        tags: tags ? JSON.stringify(tags) : JSON.stringify([])
+        tags: tags || []
       }
     });
-    res.status(201).json({
-      ...experiment,
-      params: experiment.params ? JSON.parse(experiment.params) : undefined,
-      observations: experiment.observations ? JSON.parse(experiment.observations) : undefined,
-      tags: experiment.tags ? JSON.parse(experiment.tags) : []
+    res.status(201).json(experiment);
+  } catch (error) {
+    console.error('Failed to create experiment:', error);
+    res.status(500).json({ error: 'Failed to save experiment' });
+  }
+});
+
+app.patch('/experiments/:id', async (req, res) => {
+  const user = (req as any).user as User;
+  const parse = experimentUpdateSchema.safeParse(req.body);
+
+  if (!parse.success) {
+    return res.status(400).json({ error: parse.error.flatten() });
+  }
+
+  const experimentId = req.params.id;
+
+  try {
+    const existing = await prisma.experiment.findUnique({ where: { id: experimentId } });
+    if (!existing) return res.status(404).json({ error: 'Experiment not found' });
+
+    const canEdit = user.role === 'manager' || user.role === 'admin' || existing.userId === user.id;
+    if (!canEdit) return res.status(403).json({ error: 'Not authorized to edit this experiment' });
+
+    const { params, observations, tags, ...rest } = parse.data;
+    const updateData: any = { ...rest };
+    if (params !== undefined) updateData.params = params;
+    if (observations !== undefined) updateData.observations = observations;
+    if (tags !== undefined) updateData.tags = tags;
+    updateData.version = (existing.version || 1) + 1;
+
+    const updated = await prisma.experiment.update({ where: { id: experimentId }, data: updateData });
+
+    await logChange('experiments', experimentId, 'update', existing, updated);
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Failed to update experiment:', error);
+    res.status(500).json({ error: 'Failed to update experiment' });
+  }
+});
+
+// ==================== ADMIN ENDPOINTS ====================
+
+// Admin: Get all experiments with user information (for lab managers/admins)
+app.get('/admin/experiments', async (req, res) => {
+  const user = (req as any).user as User;
+  
+  if (user.role !== 'admin' && user.role !== 'manager') {
+    return res.status(403).json({ error: 'Admin or manager access required' });
+  }
+  
+  try {
+    const experiments = await prisma.experiment.findMany({
+      include: {
+        user: { select: { id: true, name: true, email: true, role: true } },
+        signatures: { select: { id: true, signatureType: true, createdAt: true } }
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+    
+    res.json(experiments);
+  } catch (error) {
+    console.error('Failed to get all experiments:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Admin: Get all methods with creator information
+app.get('/admin/methods', async (req, res) => {
+  const user = (req as any).user as User;
+  
+  if (user.role !== 'admin' && user.role !== 'manager') {
+    return res.status(403).json({ error: 'Admin or manager access required' });
+  }
+  
+  try {
+    const methods = await prisma.method.findMany({
+      include: {
+        creator: { select: { id: true, name: true, email: true, role: true } }
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+    
+    res.json(methods);
+  } catch (error) {
+    console.error('Failed to get all methods:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Admin: Get all users and their activity summary
+app.get('/admin/users', async (req, res) => {
+  const user = (req as any).user as User;
+  
+  if (user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  
+  try {
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        active: true,
+        createdAt: true,
+        _count: {
+          select: {
+            experiments: true,
+            methods: true,
+            signatures: true
+          }
+        }
+      },
+      orderBy: { name: 'asc' }
+    });
+    
+    res.json(users);
+  } catch (error) {
+    console.error('Failed to get users:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Admin: Get experiments by specific user
+app.get('/admin/users/:userId/experiments', async (req, res) => {
+  const user = (req as any).user as User;
+  const { userId } = req.params;
+  
+  if (user.role !== 'admin' && user.role !== 'manager') {
+    return res.status(403).json({ error: 'Admin or manager access required' });
+  }
+  
+  try {
+    const experiments = await prisma.experiment.findMany({
+      where: { userId },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        signatures: true
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+    
+    res.json(experiments);
+  } catch (error) {
+    console.error('Failed to get user experiments:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ==================== PROJECT ORGANIZATION ====================
+
+// Get experiments organized by project
+app.get('/experiments/by-project', async (req, res) => {
+  const user = (req as any).user as User;
+  
+  try {
+    const where = user.role === 'manager' || user.role === 'admin' ? {} : { userId: user.id };
+    
+    const experiments = await prisma.experiment.findMany({
+      where,
+      include: {
+        user: { select: { id: true, name: true } }
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+    
+    // Group experiments by project
+    const byProject: Record<string, typeof experiments> = {};
+    const unassigned: typeof experiments = [];
+    
+    for (const exp of experiments) {
+      if (exp.project && exp.project.trim()) {
+        if (!byProject[exp.project]) {
+          byProject[exp.project] = [];
+        }
+        byProject[exp.project].push(exp);
+      } else {
+        unassigned.push(exp);
+      }
+    }
+    
+    res.json({
+      projects: byProject,
+      unassigned,
+      projectList: Object.keys(byProject).sort(),
+      summary: {
+        totalProjects: Object.keys(byProject).length,
+        totalExperiments: experiments.length,
+        unassignedCount: unassigned.length
+      }
     });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to save experiment' });
+    console.error('Failed to get experiments by project:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Get list of all projects
+app.get('/projects', async (req, res) => {
+  const user = (req as any).user as User;
+  
+  try {
+    const where = user.role === 'manager' || user.role === 'admin' ? {} : { userId: user.id };
+    
+    const experiments = await prisma.experiment.findMany({
+      where,
+      select: { project: true, id: true, status: true, updatedAt: true }
+    });
+    
+    // Aggregate project statistics
+    const projectStats: Record<string, { count: number; statuses: Record<string, number>; lastUpdated: Date }> = {};
+    
+    for (const exp of experiments) {
+      const projectName = exp.project || 'Unassigned';
+      if (!projectStats[projectName]) {
+        projectStats[projectName] = { count: 0, statuses: {}, lastUpdated: exp.updatedAt };
+      }
+      projectStats[projectName].count++;
+      const status = exp.status || 'draft';
+      projectStats[projectName].statuses[status] = (projectStats[projectName].statuses[status] || 0) + 1;
+      if (exp.updatedAt > projectStats[projectName].lastUpdated) {
+        projectStats[projectName].lastUpdated = exp.updatedAt;
+      }
+    }
+    
+    const projects = Object.entries(projectStats).map(([name, stats]) => ({
+      name,
+      experimentCount: stats.count,
+      statuses: stats.statuses,
+      lastUpdated: stats.lastUpdated
+    })).sort((a, b) => b.lastUpdated.getTime() - a.lastUpdated.getTime());
+    
+    res.json(projects);
+  } catch (error) {
+    console.error('Failed to get projects:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Get experiments for a specific project
+app.get('/projects/:projectName/experiments', async (req, res) => {
+  const user = (req as any).user as User;
+  const { projectName } = req.params;
+  
+  try {
+    const baseWhere = user.role === 'manager' || user.role === 'admin' ? {} : { userId: user.id };
+    const where = projectName === 'Unassigned' 
+      ? { ...baseWhere, OR: [{ project: null }, { project: '' }] }
+      : { ...baseWhere, project: decodeURIComponent(projectName) };
+    
+    const experiments = await prisma.experiment.findMany({
+      where,
+      include: {
+        user: { select: { id: true, name: true } },
+        signatures: { select: { id: true, signatureType: true } }
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+    
+    res.json(experiments);
+  } catch (error) {
+    console.error('Failed to get project experiments:', error);
+    res.status(500).json({ error: 'Database error' });
   }
 });
 
@@ -295,17 +823,14 @@ app.post('/experiments/from-method/:methodId', async (req, res) => {
         protocolRef: methodId,
         version: 1,
         status: 'draft',
-        observations: method.steps, // Copy steps as initial observations/checklist
-        tags: JSON.stringify([])
+        observations: method.steps || undefined,
+        tags: []
       }
     });
 
-    res.status(201).json({
-      ...experiment,
-      observations: experiment.observations ? JSON.parse(experiment.observations) : undefined,
-      tags: experiment.tags ? JSON.parse(experiment.tags) : []
-    });
+    res.status(201).json(experiment);
   } catch (error) {
+    console.error('Failed to create experiment from method:', error);
     res.status(500).json({ error: 'Failed to create experiment from method' });
   }
 });
@@ -345,9 +870,9 @@ app.post('/sync/push', async (req, res) => {
         const { params, observations, tags, ...rest } = incExp;
         const dataToSave = {
           ...rest,
-          params: params ? JSON.stringify(params) : undefined,
-          observations: observations ? JSON.stringify(observations) : undefined,
-          tags: tags ? JSON.stringify(tags) : JSON.stringify([])
+          params: params || undefined,
+          observations: observations || undefined,
+          tags: tags || []
         };
 
         if (!existing) {
@@ -377,9 +902,9 @@ app.post('/sync/push', async (req, res) => {
         const { steps, reagents, attachments, ...rest } = incMethod;
         const dataToSave = {
           ...rest,
-          steps: JSON.stringify(steps),
-          reagents: reagents ? JSON.stringify(reagents) : undefined,
-          attachments: attachments ? JSON.stringify(attachments) : undefined
+          steps: steps,
+          reagents: reagents || undefined,
+          attachments: attachments || undefined
         };
 
         if (!existing) {
@@ -415,21 +940,8 @@ app.get('/sync/pull', async (_req, res) => {
     const methods = await prisma.method.findMany();
     const experiments = await prisma.experiment.findMany();
     
-    const parsedMethods = methods.map(m => ({
-      ...m,
-      steps: JSON.parse(m.steps),
-      reagents: m.reagents ? JSON.parse(m.reagents) : undefined,
-      attachments: m.attachments ? JSON.parse(m.attachments) : undefined
-    }));
-
-    const parsedExperiments = experiments.map(e => ({
-      ...e,
-      params: e.params ? JSON.parse(e.params) : undefined,
-      observations: e.observations ? JSON.parse(e.observations) : undefined,
-      tags: e.tags ? JSON.parse(e.tags) : []
-    }));
-
-    res.json({ methods: parsedMethods, experiments: parsedExperiments });
+    // Prisma's Json type already returns parsed objects
+    res.json({ methods, experiments });
   } catch (error) {
     res.status(500).json({ error: 'Database error' });
   }
@@ -497,6 +1009,85 @@ const inventoryItemSchema = z.object({
   storageConditions: z.string().optional()
 });
 
+const inventoryItemUpdateSchema = inventoryItemSchema.partial().refine(
+  (val) => Object.keys(val).length > 0,
+  { message: 'At least one field must be provided for update' }
+);
+
+const importBase64FileSchema = z.object({
+  filename: z.string().min(1).max(255),
+  data: z.string().min(1),
+  options: z.any().optional()
+});
+
+const INVENTORY_IMPORT_MAX_BYTES = 50 * 1024 * 1024; // 50MB
+const INVENTORY_IMPORT_MAX_ROWS = 10000;
+const IMPORTS_DIR = process.env.IMPORTS_DIR || path.join(process.cwd(), 'data', 'imports');
+
+if (!fs.existsSync(IMPORTS_DIR)) {
+  fs.mkdirSync(IMPORTS_DIR, { recursive: true });
+}
+
+const inventoryImportLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const userId = (req as any).user?.id;
+    return userId || req.ip || 'anonymous';
+  }
+});
+
+function decodeBase64ToBuffer(base64: string, maxBytes: number) {
+  let buf: Buffer;
+  try {
+    buf = Buffer.from(base64, 'base64');
+  } catch {
+    return { ok: false as const, error: 'Invalid base64 data' };
+  }
+  if (buf.length === 0) return { ok: false as const, error: 'Empty file data' };
+  if (buf.length > maxBytes) {
+    return { ok: false as const, error: `File too large. Maximum size is ${Math.floor(maxBytes / (1024 * 1024))}MB` };
+  }
+  return { ok: true as const, buffer: buf };
+}
+
+function normalizeRecordKeys(record: Record<string, any>): Record<string, any> {
+  const normalized: Record<string, any> = {};
+  for (const [key, value] of Object.entries(record)) {
+    normalized[String(key).trim().toLowerCase()] = value;
+  }
+  return normalized;
+}
+
+function getFirstField(record: Record<string, any>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (value === undefined || value === null) continue;
+    const str = String(value).trim();
+    if (str.length === 0) continue;
+    return str;
+  }
+  return undefined;
+}
+
+function parseOptionalNumber(raw: unknown): number | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const str = String(raw).trim();
+  if (!str) return undefined;
+  const n = Number(str);
+  if (!Number.isFinite(n)) return undefined;
+  return n;
+}
+
+function sanitizeBracketIdentifier(name: string): string | null {
+  const trimmed = name.trim();
+  if (trimmed.length === 0 || trimmed.length > 128) return null;
+  if (!/^[A-Za-z0-9_\-\s]+$/.test(trimmed)) return null;
+  return trimmed;
+}
+
 app.get('/inventory', async (req, res) => {
   try {
     const categoryQuery = req.query.category;
@@ -549,6 +1140,416 @@ app.post('/inventory', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to create inventory item' });
+  }
+});
+
+app.patch('/inventory/:id', async (req, res) => {
+  const parse = inventoryItemUpdateSchema.safeParse(req.body);
+  if (!parse.success) {
+    return res.status(400).json({ error: parse.error.flatten() });
+  }
+  try {
+    const existing = await prisma.inventoryItem.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Item not found' });
+
+    const { properties, ...rest } = parse.data;
+    const updated = await prisma.inventoryItem.update({
+      where: { id: req.params.id },
+      data: {
+        ...rest,
+        properties: properties !== undefined ? (properties ? JSON.stringify(properties) : null) : undefined
+      }
+    });
+
+    res.json({
+      ...updated,
+      properties: updated.properties ? JSON.parse(updated.properties) : undefined
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update inventory item' });
+  }
+});
+
+app.delete('/inventory/:id', async (req, res) => {
+  const user = (req as any).user as User;
+  try {
+    // Keep inventory safe: only managers/admins can delete items.
+    if (user?.role !== 'admin' && user?.role !== 'manager') {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
+    const existing = await prisma.inventoryItem.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Item not found' });
+
+    await prisma.$transaction(async (tx) => {
+      await tx.stock.deleteMany({ where: { itemId: req.params.id } });
+      await tx.inventoryItem.delete({ where: { id: req.params.id } });
+    });
+
+    res.json({ status: 'deleted' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete inventory item' });
+  }
+});
+
+// Import inventory items/stocks from CSV
+app.post('/inventory/import/csv', inventoryImportLimiter, async (req, res) => {
+  const user = (req as any).user as User;
+  const parse = importBase64FileSchema.safeParse(req.body);
+  if (!parse.success) return res.status(400).json({ error: parse.error.flatten() });
+
+  if (user?.role !== 'admin' && user?.role !== 'manager') {
+    return res.status(403).json({
+      error: 'Not authorized',
+      requiredRoles: ['admin', 'manager'],
+      hint: 'Log in as an admin or manager to import inventory.'
+    });
+  }
+
+  const { filename, data } = parse.data;
+  const ext = path.extname(filename).toLowerCase();
+  if (ext !== '.csv' && ext !== '.tsv') {
+    return res.status(400).json({ error: 'Only .csv or .tsv files are supported' });
+  }
+
+  const decoded = decodeBase64ToBuffer(data, INVENTORY_IMPORT_MAX_BYTES);
+  if (!decoded.ok) return res.status(400).json({ error: decoded.error });
+
+  try {
+    const text = decoded.buffer.toString('utf8');
+    const records = parseCsv(text, {
+      columns: true,
+      skip_empty_lines: true,
+      relax_column_count: true,
+      trim: true
+    }) as Record<string, any>[];
+
+    if (records.length > INVENTORY_IMPORT_MAX_ROWS) {
+      return res.status(400).json({ error: `CSV has too many rows (${records.length}). Maximum is ${INVENTORY_IMPORT_MAX_ROWS}.` });
+    }
+
+    const summary = {
+      rows: records.length,
+      itemsCreated: 0,
+      itemsUpdated: 0,
+      stocksCreated: 0,
+      warnings: [] as string[],
+      errors: [] as string[]
+    };
+
+    for (let i = 0; i < records.length; i++) {
+      const row = normalizeRecordKeys(records[i]);
+      const name = getFirstField(row, ['name', 'item', 'itemname', 'reagent', 'material']);
+      if (!name) {
+        if (summary.errors.length < 25) summary.errors.push(`Row ${i + 2}: missing item name`);
+        continue;
+      }
+
+      const categoryRaw = (getFirstField(row, ['category', 'type']) || 'reagent').toLowerCase();
+      const category = INVENTORY_CATEGORIES.includes(categoryRaw as any) ? (categoryRaw as any) : ('reagent' as any);
+      if (categoryRaw && categoryRaw !== category) {
+        if (summary.warnings.length < 25) summary.warnings.push(`Row ${i + 2}: unknown category '${categoryRaw}', defaulted to 'reagent'`);
+      }
+
+      const catalogNumber = getFirstField(row, ['catalognumber', 'catalog', 'sku', 'partnumber']);
+      const manufacturer = getFirstField(row, ['manufacturer', 'mfg']);
+      const supplier = getFirstField(row, ['supplier', 'vendor']);
+      const unit = getFirstField(row, ['unit', 'uom']);
+      const description = getFirstField(row, ['description', 'desc']);
+      const safetyInfo = getFirstField(row, ['safetyinfo', 'safety', 'hazard']);
+      const storageConditions = getFirstField(row, ['storageconditions', 'storage']);
+
+      const quantity = parseOptionalNumber(getFirstField(row, ['quantity', 'qty', 'amount']));
+      const lotNumber = getFirstField(row, ['lotnumber', 'lot']);
+      const barcode = getFirstField(row, ['barcode']);
+      const notes = getFirstField(row, ['notes', 'note']);
+      const expirationDateRaw = getFirstField(row, ['expirationdate', 'expiry', 'expires']);
+      const locationName = getFirstField(row, ['location', 'freezer', 'room', 'shelf']);
+
+      const itemMatchWhere = catalogNumber
+        ? { name, catalogNumber }
+        : { name };
+
+      const existing = await prisma.inventoryItem.findFirst({ where: itemMatchWhere });
+      const item = existing
+        ? await prisma.inventoryItem.update({
+            where: { id: existing.id },
+            data: {
+              category,
+              description: description ?? existing.description,
+              catalogNumber: catalogNumber ?? existing.catalogNumber,
+              manufacturer: manufacturer ?? existing.manufacturer,
+              supplier: supplier ?? existing.supplier,
+              unit: unit ?? existing.unit,
+              safetyInfo: safetyInfo ?? existing.safetyInfo,
+              storageConditions: storageConditions ?? existing.storageConditions
+            }
+          })
+        : await prisma.inventoryItem.create({
+            data: {
+              name,
+              category,
+              description,
+              catalogNumber,
+              manufacturer,
+              supplier,
+              unit,
+              safetyInfo,
+              storageConditions
+            }
+          });
+
+      if (existing) summary.itemsUpdated++;
+      else summary.itemsCreated++;
+
+      if (quantity !== undefined && quantity > 0) {
+        let locationId: string | undefined;
+        if (locationName) {
+          const existingLocation = await prisma.location.findFirst({ where: { name: locationName } });
+          const loc = existingLocation || (await prisma.location.create({ data: { name: locationName } }));
+          locationId = loc.id;
+        }
+
+        let expirationDate: Date | undefined;
+        if (expirationDateRaw) {
+          const d = new Date(expirationDateRaw);
+          if (!Number.isNaN(d.valueOf())) expirationDate = d;
+          else if (summary.warnings.length < 25) summary.warnings.push(`Row ${i + 2}: invalid expirationDate '${expirationDateRaw}' ignored`);
+        }
+
+        try {
+          await prisma.stock.create({
+            data: {
+              itemId: item.id,
+              locationId,
+              lotNumber,
+              quantity,
+              initialQuantity: quantity,
+              expirationDate,
+              barcode,
+              notes
+            }
+          });
+          summary.stocksCreated++;
+        } catch (e: any) {
+          // Common case: duplicate barcode unique constraint
+          if (summary.errors.length < 25) summary.errors.push(`Row ${i + 2}: failed to create stock (${e?.code || 'error'})`);
+        }
+      }
+    }
+
+    res.json(summary);
+  } catch (error) {
+    console.error('CSV import error:', error);
+    res.status(500).json({ error: 'Failed to import CSV' });
+  }
+});
+
+// Import inventory items/stocks from Microsoft Access (.mdb/.accdb)
+app.post('/inventory/import/access', inventoryImportLimiter, async (req, res) => {
+  const user = (req as any).user as User;
+  const parse = importBase64FileSchema.safeParse(req.body);
+  if (!parse.success) return res.status(400).json({ error: parse.error.flatten() });
+
+  if (user?.role !== 'admin' && user?.role !== 'manager') {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  const { filename, data, options } = parse.data;
+  const ext = path.extname(filename).toLowerCase();
+  if (ext !== '.mdb' && ext !== '.accdb') {
+    return res.status(400).json({ error: 'Only .mdb or .accdb files are supported' });
+  }
+
+  const decoded = decodeBase64ToBuffer(data, INVENTORY_IMPORT_MAX_BYTES);
+  if (!decoded.ok) return res.status(400).json({ error: decoded.error });
+
+  const tableRequested = typeof options?.table === 'string' ? options.table : 'Inventory';
+  const sanitizedTable = sanitizeBracketIdentifier(tableRequested);
+  if (!sanitizedTable) return res.status(400).json({ error: 'Invalid table name' });
+
+  const mapping = (options?.mapping && typeof options.mapping === 'object') ? options.mapping : {};
+  const require = createRequire(import.meta.url);
+
+  let ADODB: any;
+  try {
+    ADODB = require('node-adodb');
+  } catch (e) {
+    return res.status(500).json({
+      error: 'Access import dependency not available (node-adodb)',
+      hint: 'Run server install (pnpm/npm install) and ensure dependencies are built.'
+    });
+  }
+
+  const fileId = uuid();
+  const importPath = path.join(IMPORTS_DIR, `${fileId}${ext}`);
+
+  try {
+    fs.writeFileSync(importPath, decoded.buffer);
+
+    const providers: string[] = ext === '.accdb'
+      ? ['Microsoft.ACE.OLEDB.12.0']
+      : ['Microsoft.ACE.OLEDB.12.0', 'Microsoft.Jet.OLEDB.4.0'];
+
+    let connection: any;
+    let lastError: any;
+    for (const provider of providers) {
+      try {
+        const connectionString = `Provider=${provider};Data Source=${importPath};Persist Security Info=False;`;
+        connection = ADODB.open(connectionString);
+        // quick sanity query to validate provider works
+        await connection.query(`SELECT TOP 1 * FROM [${sanitizedTable}]`);
+        lastError = null;
+        break;
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    if (!connection) {
+      return res.status(400).json({
+        error: 'Unable to open Access database with available OLEDB providers',
+        hint: 'Install Microsoft Access Database Engine (ACE OLEDB 12.0+) on this machine, or export your tables to CSV.',
+        details: String(lastError?.message || lastError || 'unknown')
+      });
+    }
+
+    const rows = (await connection.query(`SELECT * FROM [${sanitizedTable}]`)) as Record<string, any>[];
+    if (rows.length > INVENTORY_IMPORT_MAX_ROWS) {
+      return res.status(400).json({ error: `Access table has too many rows (${rows.length}). Maximum is ${INVENTORY_IMPORT_MAX_ROWS}.` });
+    }
+
+    const summary = {
+      rows: rows.length,
+      itemsCreated: 0,
+      itemsUpdated: 0,
+      stocksCreated: 0,
+      warnings: [] as string[],
+      errors: [] as string[]
+    };
+
+    for (let i = 0; i < rows.length; i++) {
+      const rowRaw = rows[i] || {};
+      const row = normalizeRecordKeys(rowRaw);
+
+      const nameKey = typeof mapping?.name === 'string' ? mapping.name : undefined;
+      const categoryKey = typeof mapping?.category === 'string' ? mapping.category : undefined;
+      const quantityKey = typeof mapping?.quantity === 'string' ? mapping.quantity : undefined;
+      const unitKey = typeof mapping?.unit === 'string' ? mapping.unit : undefined;
+      const locationKey = typeof mapping?.location === 'string' ? mapping.location : undefined;
+      const catalogKey = typeof mapping?.catalogNumber === 'string' ? mapping.catalogNumber : undefined;
+      const manufacturerKey = typeof mapping?.manufacturer === 'string' ? mapping.manufacturer : undefined;
+      const supplierKey = typeof mapping?.supplier === 'string' ? mapping.supplier : undefined;
+      const lotKey = typeof mapping?.lotNumber === 'string' ? mapping.lotNumber : undefined;
+      const barcodeKey = typeof mapping?.barcode === 'string' ? mapping.barcode : undefined;
+      const expiryKey = typeof mapping?.expirationDate === 'string' ? mapping.expirationDate : undefined;
+      const notesKey = typeof mapping?.notes === 'string' ? mapping.notes : undefined;
+      const descKey = typeof mapping?.description === 'string' ? mapping.description : undefined;
+
+      const name = nameKey ? getFirstField(row, [String(nameKey).toLowerCase()]) : getFirstField(row, ['name', 'item', 'itemname']);
+      if (!name) {
+        if (summary.errors.length < 25) summary.errors.push(`Row ${i + 2}: missing item name`);
+        continue;
+      }
+
+      const categoryRaw = (categoryKey
+        ? (getFirstField(row, [String(categoryKey).toLowerCase()]) || 'reagent')
+        : (getFirstField(row, ['category', 'type']) || 'reagent')
+      ).toLowerCase();
+      const category = INVENTORY_CATEGORIES.includes(categoryRaw as any) ? (categoryRaw as any) : ('reagent' as any);
+
+      const catalogNumber = catalogKey ? getFirstField(row, [String(catalogKey).toLowerCase()]) : getFirstField(row, ['catalognumber', 'catalog', 'sku']);
+      const manufacturer = manufacturerKey ? getFirstField(row, [String(manufacturerKey).toLowerCase()]) : getFirstField(row, ['manufacturer', 'mfg']);
+      const supplier = supplierKey ? getFirstField(row, [String(supplierKey).toLowerCase()]) : getFirstField(row, ['supplier', 'vendor']);
+      const unit = unitKey ? getFirstField(row, [String(unitKey).toLowerCase()]) : getFirstField(row, ['unit', 'uom']);
+      const description = descKey ? getFirstField(row, [String(descKey).toLowerCase()]) : getFirstField(row, ['description', 'desc']);
+
+      const quantityRaw = quantityKey ? getFirstField(row, [String(quantityKey).toLowerCase()]) : getFirstField(row, ['quantity', 'qty', 'amount']);
+      const quantity = parseOptionalNumber(quantityRaw);
+
+      const locationName = locationKey ? getFirstField(row, [String(locationKey).toLowerCase()]) : getFirstField(row, ['location', 'freezer', 'room', 'shelf']);
+      const lotNumber = lotKey ? getFirstField(row, [String(lotKey).toLowerCase()]) : getFirstField(row, ['lotnumber', 'lot']);
+      const barcode = barcodeKey ? getFirstField(row, [String(barcodeKey).toLowerCase()]) : getFirstField(row, ['barcode']);
+      const notes = notesKey ? getFirstField(row, [String(notesKey).toLowerCase()]) : getFirstField(row, ['notes', 'note']);
+      const expirationDateRaw = expiryKey ? getFirstField(row, [String(expiryKey).toLowerCase()]) : getFirstField(row, ['expirationdate', 'expiry', 'expires']);
+
+      const itemMatchWhere = catalogNumber
+        ? { name, catalogNumber }
+        : { name };
+
+      const existing = await prisma.inventoryItem.findFirst({ where: itemMatchWhere });
+      const item = existing
+        ? await prisma.inventoryItem.update({
+            where: { id: existing.id },
+            data: {
+              category,
+              description: description ?? existing.description,
+              catalogNumber: catalogNumber ?? existing.catalogNumber,
+              manufacturer: manufacturer ?? existing.manufacturer,
+              supplier: supplier ?? existing.supplier,
+              unit: unit ?? existing.unit
+            }
+          })
+        : await prisma.inventoryItem.create({
+            data: {
+              name,
+              category,
+              description,
+              catalogNumber,
+              manufacturer,
+              supplier,
+              unit
+            }
+          });
+
+      if (existing) summary.itemsUpdated++;
+      else summary.itemsCreated++;
+
+      if (quantity !== undefined && quantity > 0) {
+        let locationId: string | undefined;
+        if (locationName) {
+          const existingLocation = await prisma.location.findFirst({ where: { name: locationName } });
+          const loc = existingLocation || (await prisma.location.create({ data: { name: locationName } }));
+          locationId = loc.id;
+        }
+
+        let expirationDate: Date | undefined;
+        if (expirationDateRaw) {
+          const d = new Date(expirationDateRaw);
+          if (!Number.isNaN(d.valueOf())) expirationDate = d;
+          else if (summary.warnings.length < 25) summary.warnings.push(`Row ${i + 2}: invalid expirationDate '${expirationDateRaw}' ignored`);
+        }
+
+        try {
+          await prisma.stock.create({
+            data: {
+              itemId: item.id,
+              locationId,
+              lotNumber,
+              quantity,
+              initialQuantity: quantity,
+              expirationDate,
+              barcode,
+              notes
+            }
+          });
+          summary.stocksCreated++;
+        } catch (e: any) {
+          if (summary.errors.length < 25) summary.errors.push(`Row ${i + 2}: failed to create stock (${e?.code || 'error'})`);
+        }
+      }
+    }
+
+    res.json(summary);
+  } catch (error) {
+    console.error('Access import error:', error);
+    res.status(500).json({ error: 'Failed to import Access database' });
+  } finally {
+    try {
+      if (fs.existsSync(importPath)) fs.unlinkSync(importPath);
+    } catch {
+      // ignore cleanup errors
+    }
   }
 });
 
@@ -727,12 +1728,7 @@ app.post('/methods/:id/new-version', async (req, res) => {
       }
     });
 
-    res.status(201).json({
-      ...newVersion,
-      steps: JSON.parse(newVersion.steps),
-      reagents: newVersion.reagents ? JSON.parse(newVersion.reagents) : undefined,
-      attachments: newVersion.attachments ? JSON.parse(newVersion.attachments) : undefined
-    });
+    res.status(201).json(newVersion);
   } catch (error) {
     res.status(500).json({ error: 'Failed to create new version' });
   }
@@ -750,12 +1746,7 @@ app.get('/methods/:id/versions', async (req, res) => {
       orderBy: { version: 'desc' }
     });
 
-    res.json(versions.map(m => ({
-      ...m,
-      steps: JSON.parse(m.steps),
-      reagents: m.reagents ? JSON.parse(m.reagents) : undefined,
-      attachments: m.attachments ? JSON.parse(m.attachments) : undefined
-    })));
+    res.json(versions);
   } catch (error) {
     res.status(500).json({ error: 'Database error' });
   }
@@ -1072,3 +2063,5 @@ app.get('/audit-log', async (req, res) => {
     res.status(500).json({ error: 'Database error' });
   }
 });
+
+*/

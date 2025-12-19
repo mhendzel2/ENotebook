@@ -7,7 +7,8 @@ import { Router, Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
-import { API_PERMISSIONS, APIPermission } from '@eln/shared';
+import { API_PERMISSIONS } from '@eln/shared/dist/types.js';
+import type { APIPermission } from '@eln/shared/dist/types.js';
 
 const router = Router();
 
@@ -170,7 +171,7 @@ export function createApiKeyRoutes(prisma: PrismaClient): Router {
         orderBy: { createdAt: 'desc' }
       });
 
-      res.json(keys.map(k => ({
+      res.json(keys.map((k: any) => ({
         ...k,
         permissions: JSON.parse(k.permissions)
       })));
@@ -262,7 +263,7 @@ const rateLimitStore = new Map<string, RateLimitEntry>();
 
 export function rateLimit(options: { windowMs: number; max: number }) {
   return (req: Request, res: Response, next: NextFunction) => {
-    const key = req.apiKey?.id || req.header('x-user-id') || req.ip;
+    const key = req.apiKey?.id || req.header('x-user-id') || req.ip || 'anonymous';
     const now = Date.now();
     
     let entry = rateLimitStore.get(key);

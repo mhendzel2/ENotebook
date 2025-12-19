@@ -328,7 +328,7 @@ export class DashboardService {
       data: rows.map(row => Number(row[col]) || 0),
       backgroundColor: config.type === 'pie' || config.type === 'doughnut'
         ? colors
-        : colors[index % colors.length],
+        : [colors[index % colors.length]],
     }));
 
     return { labels, datasets };
@@ -482,10 +482,10 @@ export function createDashboardRoutes(prisma: PrismaClient, dashboardService: Da
         orderBy: { updatedAt: 'desc' },
       });
 
-      const parsed = dashboards.map(d => ({
+      const parsed = dashboards.map((d: any) => ({
         ...d,
         layout: JSON.parse(d.layout),
-        widgets: d.widgets.map(w => ({
+        widgets: d.widgets.map((w: any) => ({
           ...w,
           config: JSON.parse(w.config),
           position: JSON.parse(w.position),
@@ -513,7 +513,7 @@ export function createDashboardRoutes(prisma: PrismaClient, dashboardService: Da
       res.json({
         ...dashboard,
         layout: JSON.parse(dashboard.layout),
-        widgets: dashboard.widgets.map(w => ({
+        widgets: dashboard.widgets.map((w: any) => ({
           ...w,
           config: JSON.parse(w.config),
           position: JSON.parse(w.position),
@@ -576,7 +576,7 @@ export function createDashboardRoutes(prisma: PrismaClient, dashboardService: Da
       res.json({
         ...dashboard,
         layout: JSON.parse(dashboard.layout),
-        widgets: dashboard.widgets.map(w => ({
+        widgets: dashboard.widgets.map((w: any) => ({
           ...w,
           config: JSON.parse(w.config),
           position: JSON.parse(w.position),
@@ -712,7 +712,7 @@ export function createDashboardRoutes(prisma: PrismaClient, dashboardService: Da
         orderBy: { updatedAt: 'desc' },
       });
 
-      const parsed = queries.map(q => ({
+      const parsed = queries.map((q: any) => ({
         ...q,
         parameters: q.parameters ? JSON.parse(q.parameters) : [],
       }));
