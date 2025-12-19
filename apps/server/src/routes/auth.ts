@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
 import { z } from 'zod';
+import bcrypt from 'bcryptjs';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -15,23 +16,27 @@ const registerSchema = z.object({
 });
 
 /**
- * Hash password using SHA-256 with salt
+ * Hash password using bcrypt
  */
-function hashPassword(password: string, salt?: string): { hash: string; salt: string } {
-  const useSalt = salt || crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, useSalt, 10000, 64, 'sha512').toString('hex');
-  return { hash, salt: useSalt };
+async function hashPassword(password: string): Promise<string> {
+  const salt = await bcrypt.genSalt(10);
+  return bcrypt.hash(password, salt);
 }
 
 /**
- * Verify password against stored hash
+ * Verify password against stored hash (bcrypt or legacy pbkdf2)
  */
-function verifyPassword(password: string, storedHash: string): boolean {
-  // storedHash format: salt:hash
-  const [salt, hash] = storedHash.split(':');
-  if (!salt || !hash) return false;
-  const { hash: computedHash } = hashPassword(password, salt);
-  return computedHash === hash;
+async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+  // Check if it's a legacy hash (format: salt:hash)
+  if (storedHash.includes(':')) {
+    const [salt, hash] = storedHash.split(':');
+    if (!salt || !hash) return false;
+    const computedHash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
+    return computedHash === hash;
+  }
+
+  // Otherwise treat as bcrypt hash
+  return bcrypt.compare(password, storedHash);
 }
 
 export function createAuthRoutes(prisma: PrismaClient) {
@@ -57,8 +62,7 @@ export function createAuthRoutes(prisma: PrismaClient) {
       }
 
       // Hash password
-      const { hash, salt } = hashPassword(password);
-      const passwordHash = `${salt}:${hash}`;
+      const passwordHash = await hashPassword(password);
 
       // Create user - first user is admin, rest are members
       const userCount = await prisma.user.count();
@@ -112,8 +116,18 @@ export function createAuthRoutes(prisma: PrismaClient) {
       }
 
       // Verify password
-      if (!verifyPassword(password, user.passwordHash)) {
+      const isValid = await verifyPassword(password, user.passwordHash);
+      if (!isValid) {
         return res.status(401).json({ error: 'Invalid email or password' });
+      }
+
+      // If user has a legacy password hash, upgrade it to bcrypt
+      if (user.passwordHash.includes(':')) {
+        const newHash = await hashPassword(password);
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { passwordHash: newHash },
+        });
       }
 
       // Return user without password hash
@@ -194,13 +208,13 @@ export function createAuthRoutes(prisma: PrismaClient) {
       }
 
       // Verify current password
-      if (!verifyPassword(currentPassword, user.passwordHash)) {
+      const isValid = await verifyPassword(currentPassword, user.passwordHash);
+      if (!isValid) {
         return res.status(401).json({ error: 'Current password is incorrect' });
       }
 
       // Hash new password
-      const { hash, salt } = hashPassword(newPassword);
-      const passwordHash = `${salt}:${hash}`;
+      const passwordHash = await hashPassword(newPassword);
 
       await prisma.user.update({
         where: { id: userId },
