@@ -759,6 +759,47 @@ export const chemistrySchema: JSONSchema = {
 
 // ==================== SCHEMA REGISTRY ====================
 
+// Generic schema for 'other' modality type
+export const otherModalitySchema: JSONSchema = {
+  $id: 'eln:modality:other',
+  title: 'Custom Experiment Parameters',
+  description: 'Generic parameters for custom experiment types',
+  type: 'object',
+  properties: {
+    experimentType: {
+      type: 'string',
+      title: 'Experiment Type',
+      description: 'Describe the type of experiment'
+    },
+    description: {
+      type: 'string',
+      title: 'Description',
+      description: 'Detailed description of the experiment setup'
+    },
+    equipment: {
+      type: 'array',
+      title: 'Equipment Used',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', title: 'Equipment Name' },
+          settings: { type: 'string', title: 'Settings/Configuration' }
+        }
+      }
+    },
+    parameters: {
+      type: 'object',
+      title: 'Custom Parameters',
+      description: 'Define custom key-value parameters'
+    },
+    notes: {
+      type: 'string',
+      title: 'Additional Notes'
+    }
+  },
+  'ui:order': ['experimentType', 'description', 'equipment', 'parameters', 'notes']
+};
+
 export const modalitySchemas: Record<Modality, JSONSchema> = {
   fluorescence: fluorescenceSchema,
   electron_microscopy: electronMicroscopySchema,
@@ -766,7 +807,8 @@ export const modalitySchemas: Record<Modality, JSONSchema> = {
   molecular_biology: molecularBiologySchema,
   biochemistry: biochemistrySchema,
   flow_cytometry: flowCytometrySchema,
-  chemistry: chemistrySchema
+  chemistry: chemistrySchema,
+  other: otherModalitySchema
 };
 
 export function getModalitySchema(modality: Modality): JSONSchema {

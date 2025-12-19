@@ -259,7 +259,7 @@ export function createAttachmentRoutes(prisma: PrismaClient): Router {
           });
           
           // Merge new dataset into observations.datasets array
-          const observations = (currentExperiment?.observations as Record<string, unknown>) || {};
+          const observations = (currentExperiment?.observations as unknown as Record<string, unknown>) || {};
           const datasets = (observations.datasets as Record<string, unknown>[]) || [];
           
           // Add attachment metadata to the processed dataset

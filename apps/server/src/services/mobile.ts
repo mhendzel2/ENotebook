@@ -174,7 +174,7 @@ export class MobileService {
         // Parse existing observations (Prisma JSON fields are already objects)
         let observations: Record<string, unknown> = {};
         if (experiment.observations) {
-          observations = experiment.observations as Record<string, unknown>;
+          observations = experiment.observations as unknown as Record<string, unknown>;
         }
 
         // Add new entry to observations
