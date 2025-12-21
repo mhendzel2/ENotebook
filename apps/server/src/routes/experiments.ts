@@ -28,9 +28,11 @@ export const experimentSchema = z.object({
   title: z.string().min(1),
   project: z.string().optional(),
   modality: modalityEnum,
+  customModality: z.string().max(100).optional(), // For 'other' modality - user-defined experiment type
   protocolRef: z.string().optional(),
   params: z.any().optional(),
   observations: z.any().optional(),
+  troubleshootingNotes: z.string().optional(), // Separate field for troubleshooting documentation
   resultsSummary: z.string().optional(),
   dataLink: z.string().optional(),
   tags: z.array(z.string()).optional(),

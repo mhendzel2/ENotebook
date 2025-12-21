@@ -565,7 +565,7 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
         const safetyInfo = getFirstField(row, ['safetyinfo', 'safety', 'hazard']);
         const storageConditions = getFirstField(row, ['storageconditions', 'storage']);
 
-        const quantity = parseOptionalNumber(getFirstField(row, ['quantity', 'qty', 'amount']));
+        const quantity = parseOptionalNumber(getFirstField(row, ['quantity', 'qty', 'amount', 'numofitems', 'numberofitems', 'itemcount', 'count', 'num', 'stock', 'stockqty', 'onhand']));
         const lotNumber = getFirstField(row, ['lotnumber', 'lot']);
         const barcode = getFirstField(row, ['barcode']);
         const notes = getFirstField(row, ['notes', 'note']);
@@ -1242,7 +1242,7 @@ export function createInventoryRoutes(prisma: PrismaClient): Router {
         const unit = unitKey ? getFirstField(row, [String(unitKey).toLowerCase()]) : getFirstField(row, ['unit', 'uom']);
         const description = descKey ? getFirstField(row, [String(descKey).toLowerCase()]) : getFirstField(row, ['description', 'desc']);
 
-        const quantityRaw = quantityKey ? getFirstField(row, [String(quantityKey).toLowerCase()]) : getFirstField(row, ['quantity', 'qty', 'amount']);
+        const quantityRaw = quantityKey ? getFirstField(row, [String(quantityKey).toLowerCase()]) : getFirstField(row, ['quantity', 'qty', 'amount', 'numofitems', 'numberofitems', 'itemcount', 'count', 'num', 'stock', 'stockqty', 'onhand']);
         const quantity = parseOptionalNumber(quantityRaw);
 
         const locationName = locationKey ? getFirstField(row, [String(locationKey).toLowerCase()]) : getFirstField(row, ['location', 'freezer', 'room', 'shelf']);

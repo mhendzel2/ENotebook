@@ -6,7 +6,9 @@ export type Modality =
   | 'biophysical'
   | 'molecular_biology'
   | 'biochemistry'
-  | 'flow_cytometry';
+  | 'flow_cytometry'
+  | 'chemistry'
+  | 'other';
 
 export type ExperimentStatus = 'draft' | 'in_progress' | 'completed' | 'signed';
 
@@ -66,9 +68,11 @@ export interface Experiment {
   title: string;
   project?: string;
   modality: Modality;
+  customModality?: string; // For 'other' modality - user-defined experiment type
   protocolRef?: string;
   params?: Record<string, unknown>;
   observations?: unknown;
+  troubleshootingNotes?: string; // Separate field for troubleshooting documentation
   resultsSummary?: string;
   dataLink?: string;
   tags?: string[];
@@ -283,7 +287,9 @@ export const MODALITIES: Modality[] = [
   'biophysical',
   'molecular_biology',
   'biochemistry',
-  'flow_cytometry'
+  'flow_cytometry',
+  'chemistry',
+  'other'
 ];
 
 export const INVENTORY_CATEGORIES: InventoryCategory[] = [

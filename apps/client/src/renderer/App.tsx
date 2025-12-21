@@ -7,7 +7,7 @@ import { ReportUploader, ReportList } from './components/Reports';
 import { SchemaForm } from './components/SchemaForm';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 
-type NavTab = 'dashboard' | 'methods' | 'experiments' | 'projects' | 'inventory' | 'workflows' | 'labels' | 'analytics' | 'sync' | 'settings' | 'admin';
+type NavTab = 'dashboard' | 'methods' | 'experiments' | 'projects' | 'inventory' | 'workflows' | 'labels' | 'calculators' | 'troubleshooting' | 'analytics' | 'sync' | 'settings' | 'admin';
 type AuthState = 'login' | 'register' | 'authenticated';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000';
@@ -197,7 +197,9 @@ function App() {
           <NavButton icon="📦" label="Inventory" active={tab === 'inventory'} onClick={() => setTab('inventory')} />
           <NavButton icon="⚡" label="Workflows" active={tab === 'workflows'} onClick={() => setTab('workflows')} />
           <NavButton icon="🏷️" label="Labels" active={tab === 'labels'} onClick={() => setTab('labels')} />
-          <NavButton icon="📈" label="Analytics" active={tab === 'analytics'} onClick={() => setTab('analytics')} />
+          <NavButton icon="🧮" label="Calculators" active={tab === 'calculators'} onClick={() => setTab('calculators')} />
+          <NavButton icon="�" label="Troubleshooting" active={tab === 'troubleshooting'} onClick={() => setTab('troubleshooting')} />
+          <NavButton icon="�📈" label="Analytics" active={tab === 'analytics'} onClick={() => setTab('analytics')} />
           <NavButton icon="🔄" label="Sync" active={tab === 'sync'} onClick={() => setTab('sync')} />
           <div style={styles.navDivider} />
           {(user?.role === 'admin' || user?.role === 'manager') && (
@@ -223,6 +225,8 @@ function App() {
         {tab === 'inventory' && <InventoryPanel user={user!} />}
         {tab === 'workflows' && <WorkflowsPanel user={user!} />}
         {tab === 'labels' && <LabelsPanel user={user!} />}
+        {tab === 'calculators' && <CalculatorsPanel />}
+        {tab === 'troubleshooting' && <TroubleshootingPanel user={user!} />}
         {tab === 'analytics' && <AnalyticsPanel user={user!} />}
         {tab === 'sync' && <SyncPanel user={user!} />}
         {tab === 'settings' && <SettingsPanel user={user!} />}
@@ -673,8 +677,10 @@ function ExperimentForm({ user, methods, onClose, onSaved }: {
   const [title, setTitle] = useState('');
   const [project, setProject] = useState('');
   const [modality, setModality] = useState<string>('');
+  const [customModality, setCustomModality] = useState('');
   const [protocolRef, setProtocolRef] = useState('');
   const [observations, setObservations] = useState('');
+  const [troubleshootingNotes, setTroubleshootingNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -694,8 +700,10 @@ function ExperimentForm({ user, methods, onClose, onSaved }: {
           title,
           project,
           modality: modality || 'molecular_biology',
+          customModality: modality === 'other' ? customModality : null,
           protocolRef: protocolRef || null,
           observations: { text: observations },
+          troubleshootingNotes: troubleshootingNotes || null,
           tags: [],
         }),
       });
@@ -753,13 +761,24 @@ function ExperimentForm({ user, methods, onClose, onSaved }: {
           </div>
           <div style={styles.formRow}>
             <div style={styles.formField}>
-              <label style={styles.formLabel}>Modality *</label>
+              <label style={styles.formLabel}>Experiment Type *</label>
               <select value={modality} onChange={e => setModality(e.target.value)} style={styles.formSelect} required>
-                <option value="">Select modality</option>
+                <option value="">Select type</option>
                 {MODALITIES.map(m => (
                   <option key={m} value={m}>{formatModality(m)}</option>
                 ))}
               </select>
+              {modality === 'other' && (
+                <input
+                  type="text"
+                  value={customModality}
+                  onChange={e => setCustomModality(e.target.value)}
+                  style={{ ...styles.formInput, marginTop: '8px' }}
+                  placeholder="Enter custom experiment type..."
+                  maxLength={100}
+                  required
+                />
+              )}
             </div>
             <div style={styles.formField}>
               <label style={styles.formLabel}>Protocol</label>
@@ -780,6 +799,19 @@ function ExperimentForm({ user, methods, onClose, onSaved }: {
               rows={4}
               placeholder="Record your initial observations..."
             />
+          </div>
+          <div style={styles.formField}>
+            <label style={styles.formLabel}>🔧 Troubleshooting Notes</label>
+            <textarea
+              value={troubleshootingNotes}
+              onChange={e => setTroubleshootingNotes(e.target.value)}
+              style={{ ...styles.formTextarea, background: '#fffbeb', borderColor: '#fcd34d' }}
+              rows={3}
+              placeholder="Document any issues, debugging steps, or troubleshooting notes..."
+            />
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#92400e' }}>
+              Use this section to document problems encountered and how they were resolved.
+            </p>
           </div>
           <div style={styles.formActions}>
             <button type="button" onClick={onClose} style={styles.secondaryButton}>Cancel</button>
@@ -1952,9 +1984,26 @@ function InventoryPanel({ user }: { user: AuthUser }) {
                 )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-                <span style={{ fontWeight: 600 }}>
-                  {totalQuantity(item)}{item.unit ? ` ${item.unit}` : ''}
-                </span>
+                <div style={{ 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  alignItems: 'center',
+                  padding: '4px 12px',
+                  background: totalQuantity(item) > 0 ? '#dcfce7' : '#fef2f2',
+                  borderRadius: 8,
+                  minWidth: 60
+                }}>
+                  <span style={{ 
+                    fontWeight: 700, 
+                    fontSize: 16,
+                    color: totalQuantity(item) > 0 ? '#166534' : '#dc2626'
+                  }}>
+                    {totalQuantity(item)}
+                  </span>
+                  <span style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase' }}>
+                    {item.unit || 'items'}
+                  </span>
+                </div>
                 <button
                   style={styles.secondaryButton}
                   onClick={() => {
@@ -2214,6 +2263,509 @@ function LabelsPanel({ user }: { user: AuthUser }) {
 }
 
 // Analytics Panel
+// Calculators Panel - Molarity and Dilution Calculators
+function CalculatorsPanel() {
+  const [activeCalc, setActiveCalc] = useState<'molarity' | 'dilution'>('molarity');
+  
+  // Molarity calculator state: Mass = Concentration × Volume × MW
+  const [molarityMode, setMolarityMode] = useState<'mass' | 'volume' | 'concentration'>('mass');
+  const [molecularWeight, setMolecularWeight] = useState('');
+  const [molarityConcentration, setMolarityConcentration] = useState('');
+  const [molarityConcentrationUnit, setMolarityConcentrationUnit] = useState<'M' | 'mM' | 'µM' | 'nM'>('mM');
+  const [molarityVolume, setMolarityVolume] = useState('');
+  const [molarityVolumeUnit, setMolarityVolumeUnit] = useState<'L' | 'mL' | 'µL'>('mL');
+  const [molarityMass, setMolarityMass] = useState('');
+  const [molarityMassUnit, setMolarityMassUnit] = useState<'g' | 'mg' | 'µg' | 'ng'>('mg');
+  const [molarityResult, setMolarityResult] = useState<string | null>(null);
+  
+  // Dilution calculator state: C1V1 = C2V2
+  const [dilutionMode, setDilutionMode] = useState<'V1' | 'C2' | 'V2'>('V1');
+  const [c1, setC1] = useState('');
+  const [c1Unit, setC1Unit] = useState<'M' | 'mM' | 'µM' | 'nM'>('mM');
+  const [v1, setV1] = useState('');
+  const [v1Unit, setV1Unit] = useState<'L' | 'mL' | 'µL'>('µL');
+  const [c2, setC2] = useState('');
+  const [c2Unit, setC2Unit] = useState<'M' | 'mM' | 'µM' | 'nM'>('µM');
+  const [v2, setV2] = useState('');
+  const [v2Unit, setV2Unit] = useState<'L' | 'mL' | 'µL'>('mL');
+  const [dilutionResult, setDilutionResult] = useState<string | null>(null);
+
+  // Unit conversion factors to base units (mol/L for concentration, L for volume, g for mass)
+  const concentrationToMolar: Record<string, number> = { 'M': 1, 'mM': 1e-3, 'µM': 1e-6, 'nM': 1e-9 };
+  const volumeToLiters: Record<string, number> = { 'L': 1, 'mL': 1e-3, 'µL': 1e-6 };
+  const massToGrams: Record<string, number> = { 'g': 1, 'mg': 1e-3, 'µg': 1e-6, 'ng': 1e-9 };
+
+  const formatNumber = (num: number, unit: string): string => {
+    if (num === 0) return `0 ${unit}`;
+    if (num >= 1000) return `${(num / 1000).toPrecision(4)} k${unit}`;
+    if (num >= 1) return `${num.toPrecision(4)} ${unit}`;
+    if (num >= 1e-3) return `${(num * 1e3).toPrecision(4)} m${unit}`;
+    if (num >= 1e-6) return `${(num * 1e6).toPrecision(4)} µ${unit}`;
+    if (num >= 1e-9) return `${(num * 1e9).toPrecision(4)} n${unit}`;
+    return `${num.toExponential(3)} ${unit}`;
+  };
+
+  const calculateMolarity = () => {
+    const mw = parseFloat(molecularWeight);
+    if (!mw || mw <= 0) {
+      setMolarityResult('Please enter a valid molecular weight');
+      return;
+    }
+
+    if (molarityMode === 'mass') {
+      // Calculate mass: Mass (g) = Concentration (mol/L) × Volume (L) × MW (g/mol)
+      const conc = parseFloat(molarityConcentration);
+      const vol = parseFloat(molarityVolume);
+      if (!conc || !vol || conc <= 0 || vol <= 0) {
+        setMolarityResult('Please enter valid concentration and volume');
+        return;
+      }
+      const concInMolar = conc * concentrationToMolar[molarityConcentrationUnit];
+      const volInLiters = vol * volumeToLiters[molarityVolumeUnit];
+      const massInGrams = concInMolar * volInLiters * mw;
+      setMolarityResult(`Mass needed: ${formatNumber(massInGrams, 'g')}`);
+    } else if (molarityMode === 'volume') {
+      // Calculate volume: Volume (L) = Mass (g) / (Concentration (mol/L) × MW (g/mol))
+      const mass = parseFloat(molarityMass);
+      const conc = parseFloat(molarityConcentration);
+      if (!mass || !conc || mass <= 0 || conc <= 0) {
+        setMolarityResult('Please enter valid mass and concentration');
+        return;
+      }
+      const massInGrams = mass * massToGrams[molarityMassUnit];
+      const concInMolar = conc * concentrationToMolar[molarityConcentrationUnit];
+      const volInLiters = massInGrams / (concInMolar * mw);
+      setMolarityResult(`Volume needed: ${formatNumber(volInLiters, 'L')}`);
+    } else {
+      // Calculate concentration: Concentration (mol/L) = Mass (g) / (Volume (L) × MW (g/mol))
+      const mass = parseFloat(molarityMass);
+      const vol = parseFloat(molarityVolume);
+      if (!mass || !vol || mass <= 0 || vol <= 0) {
+        setMolarityResult('Please enter valid mass and volume');
+        return;
+      }
+      const massInGrams = mass * massToGrams[molarityMassUnit];
+      const volInLiters = vol * volumeToLiters[molarityVolumeUnit];
+      const concInMolar = massInGrams / (volInLiters * mw);
+      setMolarityResult(`Concentration: ${formatNumber(concInMolar, 'M')}`);
+    }
+  };
+
+  const calculateDilution = () => {
+    // C1V1 = C2V2
+    if (dilutionMode === 'V1') {
+      // V1 = C2 × V2 / C1
+      const c1Val = parseFloat(c1);
+      const c2Val = parseFloat(c2);
+      const v2Val = parseFloat(v2);
+      if (!c1Val || !c2Val || !v2Val || c1Val <= 0 || c2Val <= 0 || v2Val <= 0) {
+        setDilutionResult('Please enter valid C1, C2, and V2 values');
+        return;
+      }
+      const c1Molar = c1Val * concentrationToMolar[c1Unit];
+      const c2Molar = c2Val * concentrationToMolar[c2Unit];
+      const v2Liters = v2Val * volumeToLiters[v2Unit];
+      if (c2Molar > c1Molar) {
+        setDilutionResult('Error: Final concentration cannot exceed stock concentration');
+        return;
+      }
+      const v1Liters = (c2Molar * v2Liters) / c1Molar;
+      setDilutionResult(`Volume of stock needed (V1): ${formatNumber(v1Liters, 'L')}`);
+    } else if (dilutionMode === 'C2') {
+      // C2 = C1 × V1 / V2
+      const c1Val = parseFloat(c1);
+      const v1Val = parseFloat(v1);
+      const v2Val = parseFloat(v2);
+      if (!c1Val || !v1Val || !v2Val || c1Val <= 0 || v1Val <= 0 || v2Val <= 0) {
+        setDilutionResult('Please enter valid C1, V1, and V2 values');
+        return;
+      }
+      const c1Molar = c1Val * concentrationToMolar[c1Unit];
+      const v1Liters = v1Val * volumeToLiters[v1Unit];
+      const v2Liters = v2Val * volumeToLiters[v2Unit];
+      if (v1Liters > v2Liters) {
+        setDilutionResult('Error: Stock volume cannot exceed final volume');
+        return;
+      }
+      const c2Molar = (c1Molar * v1Liters) / v2Liters;
+      setDilutionResult(`Final concentration (C2): ${formatNumber(c2Molar, 'M')}`);
+    } else {
+      // V2 = C1 × V1 / C2
+      const c1Val = parseFloat(c1);
+      const v1Val = parseFloat(v1);
+      const c2Val = parseFloat(c2);
+      if (!c1Val || !v1Val || !c2Val || c1Val <= 0 || v1Val <= 0 || c2Val <= 0) {
+        setDilutionResult('Please enter valid C1, V1, and C2 values');
+        return;
+      }
+      const c1Molar = c1Val * concentrationToMolar[c1Unit];
+      const c2Molar = c2Val * concentrationToMolar[c2Unit];
+      const v1Liters = v1Val * volumeToLiters[v1Unit];
+      if (c2Molar > c1Molar) {
+        setDilutionResult('Error: Final concentration cannot exceed stock concentration');
+        return;
+      }
+      const v2Liters = (c1Molar * v1Liters) / c2Molar;
+      setDilutionResult(`Final volume (V2): ${formatNumber(v2Liters, 'L')}`);
+    }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    padding: '10px 12px',
+    fontSize: '15px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '8px',
+    outline: 'none',
+    width: '120px',
+    textAlign: 'right'
+  };
+
+  const selectStyle: React.CSSProperties = {
+    padding: '10px 8px',
+    fontSize: '14px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '8px',
+    background: '#f8fafc',
+    cursor: 'pointer'
+  };
+
+  const rowStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    marginBottom: '16px'
+  };
+
+  const labelStyle: React.CSSProperties = {
+    width: '180px',
+    fontWeight: 500,
+    color: '#374151'
+  };
+
+  return (
+    <div style={styles.panel}>
+      <div style={styles.header}>
+        <div>
+          <h2 style={styles.pageTitle}>Lab Calculators</h2>
+          <p style={styles.pageSubtitle}>Molarity and dilution calculations for solution preparation</p>
+        </div>
+      </div>
+
+      {/* Calculator Type Tabs */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
+        <button
+          onClick={() => { setActiveCalc('molarity'); setMolarityResult(null); }}
+          style={activeCalc === 'molarity' ? styles.primaryButton : styles.secondaryButton}
+        >
+          🧪 Molarity Calculator
+        </button>
+        <button
+          onClick={() => { setActiveCalc('dilution'); setDilutionResult(null); }}
+          style={activeCalc === 'dilution' ? styles.primaryButton : styles.secondaryButton}
+        >
+          💧 Dilution Calculator
+        </button>
+      </div>
+
+      {activeCalc === 'molarity' ? (
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>Molarity Calculator</h3>
+          <p style={{ color: '#64748b', marginBottom: '20px', fontSize: '14px' }}>
+            Calculate mass, volume, or concentration using the equation: <strong>Mass = Concentration × Volume × Molecular Weight</strong>
+          </p>
+
+          {/* Mode selector */}
+          <div style={{ marginBottom: '24px' }}>
+            <label style={{ fontWeight: 500, marginRight: '12px' }}>Calculate:</label>
+            <select 
+              value={molarityMode} 
+              onChange={(e) => { setMolarityMode(e.target.value as any); setMolarityResult(null); }}
+              style={{ ...selectStyle, width: '200px' }}
+            >
+              <option value="mass">Mass (how much compound to weigh)</option>
+              <option value="volume">Volume (how much solvent to add)</option>
+              <option value="concentration">Concentration (resulting molarity)</option>
+            </select>
+          </div>
+
+          {/* Molecular Weight - always shown */}
+          <div style={rowStyle}>
+            <label style={labelStyle}>Molecular Weight (g/mol)</label>
+            <input
+              type="number"
+              value={molecularWeight}
+              onChange={(e) => setMolecularWeight(e.target.value)}
+              placeholder="e.g. 197.13"
+              style={inputStyle}
+            />
+          </div>
+
+          {/* Conditional inputs based on mode */}
+          {molarityMode === 'mass' && (
+            <>
+              <div style={rowStyle}>
+                <label style={labelStyle}>Desired Concentration</label>
+                <input
+                  type="number"
+                  value={molarityConcentration}
+                  onChange={(e) => setMolarityConcentration(e.target.value)}
+                  placeholder="e.g. 10"
+                  style={inputStyle}
+                />
+                <select value={molarityConcentrationUnit} onChange={(e) => setMolarityConcentrationUnit(e.target.value as any)} style={selectStyle}>
+                  <option value="M">M</option>
+                  <option value="mM">mM</option>
+                  <option value="µM">µM</option>
+                  <option value="nM">nM</option>
+                </select>
+              </div>
+              <div style={rowStyle}>
+                <label style={labelStyle}>Desired Volume</label>
+                <input
+                  type="number"
+                  value={molarityVolume}
+                  onChange={(e) => setMolarityVolume(e.target.value)}
+                  placeholder="e.g. 10"
+                  style={inputStyle}
+                />
+                <select value={molarityVolumeUnit} onChange={(e) => setMolarityVolumeUnit(e.target.value as any)} style={selectStyle}>
+                  <option value="L">L</option>
+                  <option value="mL">mL</option>
+                  <option value="µL">µL</option>
+                </select>
+              </div>
+            </>
+          )}
+
+          {molarityMode === 'volume' && (
+            <>
+              <div style={rowStyle}>
+                <label style={labelStyle}>Compound Mass</label>
+                <input
+                  type="number"
+                  value={molarityMass}
+                  onChange={(e) => setMolarityMass(e.target.value)}
+                  placeholder="e.g. 20"
+                  style={inputStyle}
+                />
+                <select value={molarityMassUnit} onChange={(e) => setMolarityMassUnit(e.target.value as any)} style={selectStyle}>
+                  <option value="g">g</option>
+                  <option value="mg">mg</option>
+                  <option value="µg">µg</option>
+                  <option value="ng">ng</option>
+                </select>
+              </div>
+              <div style={rowStyle}>
+                <label style={labelStyle}>Desired Concentration</label>
+                <input
+                  type="number"
+                  value={molarityConcentration}
+                  onChange={(e) => setMolarityConcentration(e.target.value)}
+                  placeholder="e.g. 10"
+                  style={inputStyle}
+                />
+                <select value={molarityConcentrationUnit} onChange={(e) => setMolarityConcentrationUnit(e.target.value as any)} style={selectStyle}>
+                  <option value="M">M</option>
+                  <option value="mM">mM</option>
+                  <option value="µM">µM</option>
+                  <option value="nM">nM</option>
+                </select>
+              </div>
+            </>
+          )}
+
+          {molarityMode === 'concentration' && (
+            <>
+              <div style={rowStyle}>
+                <label style={labelStyle}>Compound Mass</label>
+                <input
+                  type="number"
+                  value={molarityMass}
+                  onChange={(e) => setMolarityMass(e.target.value)}
+                  placeholder="e.g. 20"
+                  style={inputStyle}
+                />
+                <select value={molarityMassUnit} onChange={(e) => setMolarityMassUnit(e.target.value as any)} style={selectStyle}>
+                  <option value="g">g</option>
+                  <option value="mg">mg</option>
+                  <option value="µg">µg</option>
+                  <option value="ng">ng</option>
+                </select>
+              </div>
+              <div style={rowStyle}>
+                <label style={labelStyle}>Solution Volume</label>
+                <input
+                  type="number"
+                  value={molarityVolume}
+                  onChange={(e) => setMolarityVolume(e.target.value)}
+                  placeholder="e.g. 10"
+                  style={inputStyle}
+                />
+                <select value={molarityVolumeUnit} onChange={(e) => setMolarityVolumeUnit(e.target.value as any)} style={selectStyle}>
+                  <option value="L">L</option>
+                  <option value="mL">mL</option>
+                  <option value="µL">µL</option>
+                </select>
+              </div>
+            </>
+          )}
+
+          <div style={{ marginTop: '24px' }}>
+            <button onClick={calculateMolarity} style={styles.primaryButton}>
+              Calculate
+            </button>
+          </div>
+
+          {molarityResult && (
+            <div style={{
+              marginTop: '20px',
+              padding: '16px 20px',
+              background: molarityResult.startsWith('Please') || molarityResult.startsWith('Error') ? '#fef2f2' : '#dcfce7',
+              borderRadius: '12px',
+              fontSize: '18px',
+              fontWeight: 600,
+              color: molarityResult.startsWith('Please') || molarityResult.startsWith('Error') ? '#dc2626' : '#166534'
+            }}>
+              {molarityResult}
+            </div>
+          )}
+
+          {/* Formula reference */}
+          <div style={{ marginTop: '32px', padding: '16px', background: '#f8fafc', borderRadius: '8px', fontSize: '13px', color: '#64748b' }}>
+            <strong>Formula:</strong> Mass (g) = Concentration (mol/L) × Volume (L) × Molecular Weight (g/mol)
+          </div>
+        </div>
+      ) : (
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>Dilution Calculator (C₁V₁ = C₂V₂)</h3>
+          <p style={{ color: '#64748b', marginBottom: '20px', fontSize: '14px' }}>
+            Calculate stock volume, final concentration, or final volume for dilutions
+          </p>
+
+          {/* Mode selector */}
+          <div style={{ marginBottom: '24px' }}>
+            <label style={{ fontWeight: 500, marginRight: '12px' }}>Calculate:</label>
+            <select 
+              value={dilutionMode} 
+              onChange={(e) => { setDilutionMode(e.target.value as any); setDilutionResult(null); }}
+              style={{ ...selectStyle, width: '280px' }}
+            >
+              <option value="V1">V₁ - Volume of stock solution needed</option>
+              <option value="C2">C₂ - Final concentration after dilution</option>
+              <option value="V2">V₂ - Final volume of diluted solution</option>
+            </select>
+          </div>
+
+          {/* C1 - Stock concentration (always shown) */}
+          <div style={rowStyle}>
+            <label style={labelStyle}>C₁ (Stock Concentration)</label>
+            <input
+              type="number"
+              value={c1}
+              onChange={(e) => setC1(e.target.value)}
+              placeholder="e.g. 10"
+              style={inputStyle}
+            />
+            <select value={c1Unit} onChange={(e) => setC1Unit(e.target.value as any)} style={selectStyle}>
+              <option value="M">M</option>
+              <option value="mM">mM</option>
+              <option value="µM">µM</option>
+              <option value="nM">nM</option>
+            </select>
+          </div>
+
+          {/* V1 - Stock volume (shown when not calculating V1) */}
+          {dilutionMode !== 'V1' && (
+            <div style={rowStyle}>
+              <label style={labelStyle}>V₁ (Stock Volume)</label>
+              <input
+                type="number"
+                value={v1}
+                onChange={(e) => setV1(e.target.value)}
+                placeholder="e.g. 100"
+                style={inputStyle}
+              />
+              <select value={v1Unit} onChange={(e) => setV1Unit(e.target.value as any)} style={selectStyle}>
+                <option value="L">L</option>
+                <option value="mL">mL</option>
+                <option value="µL">µL</option>
+              </select>
+            </div>
+          )}
+
+          {/* C2 - Final concentration (shown when not calculating C2) */}
+          {dilutionMode !== 'C2' && (
+            <div style={rowStyle}>
+              <label style={labelStyle}>C₂ (Final Concentration)</label>
+              <input
+                type="number"
+                value={c2}
+                onChange={(e) => setC2(e.target.value)}
+                placeholder="e.g. 50"
+                style={inputStyle}
+              />
+              <select value={c2Unit} onChange={(e) => setC2Unit(e.target.value as any)} style={selectStyle}>
+                <option value="M">M</option>
+                <option value="mM">mM</option>
+                <option value="µM">µM</option>
+                <option value="nM">nM</option>
+              </select>
+            </div>
+          )}
+
+          {/* V2 - Final volume (shown when not calculating V2) */}
+          {dilutionMode !== 'V2' && (
+            <div style={rowStyle}>
+              <label style={labelStyle}>V₂ (Final Volume)</label>
+              <input
+                type="number"
+                value={v2}
+                onChange={(e) => setV2(e.target.value)}
+                placeholder="e.g. 20"
+                style={inputStyle}
+              />
+              <select value={v2Unit} onChange={(e) => setV2Unit(e.target.value as any)} style={selectStyle}>
+                <option value="L">L</option>
+                <option value="mL">mL</option>
+                <option value="µL">µL</option>
+              </select>
+            </div>
+          )}
+
+          <div style={{ marginTop: '24px' }}>
+            <button onClick={calculateDilution} style={styles.primaryButton}>
+              Calculate
+            </button>
+          </div>
+
+          {dilutionResult && (
+            <div style={{
+              marginTop: '20px',
+              padding: '16px 20px',
+              background: dilutionResult.startsWith('Please') || dilutionResult.startsWith('Error') ? '#fef2f2' : '#dcfce7',
+              borderRadius: '12px',
+              fontSize: '18px',
+              fontWeight: 600,
+              color: dilutionResult.startsWith('Please') || dilutionResult.startsWith('Error') ? '#dc2626' : '#166534'
+            }}>
+              {dilutionResult}
+            </div>
+          )}
+
+          {/* Formula reference */}
+          <div style={{ marginTop: '32px', padding: '16px', background: '#f8fafc', borderRadius: '8px', fontSize: '13px', color: '#64748b' }}>
+            <strong>Formula:</strong> C₁ × V₁ = C₂ × V₂
+            <br />
+            <span style={{ marginTop: '4px', display: 'block' }}>
+              Where C₁ = stock concentration, V₁ = stock volume, C₂ = final concentration, V₂ = final volume
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AnalyticsPanel({ user }: { user: AuthUser }) {
   const [metrics, setMetrics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -2530,6 +3082,7 @@ function AdminPanel({ user }: { user: AuthUser }) {
   const [allMethods, setAllMethods] = useState<any[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     loadAdminData();
@@ -2573,6 +3126,48 @@ function AdminPanel({ user }: { user: AuthUser }) {
     }
   };
 
+  const updateUserRole = async (userId: string, newRole: string) => {
+    setActionMessage(null);
+    try {
+      const res = await fetch(`${API_BASE}/admin/users/${userId}/role`, {
+        method: 'PATCH',
+        headers: { 'x-user-id': user.id, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole })
+      });
+      if (res.ok) {
+        const updatedUser = await res.json();
+        setUsers(users.map(u => u.id === userId ? { ...u, role: updatedUser.role } : u));
+        setActionMessage({ type: 'success', text: `Role updated to ${newRole}` });
+      } else {
+        const err = await res.json();
+        setActionMessage({ type: 'error', text: err.error || 'Failed to update role' });
+      }
+    } catch (error) {
+      setActionMessage({ type: 'error', text: 'Failed to update role' });
+    }
+  };
+
+  const toggleUserStatus = async (userId: string, currentActive: boolean) => {
+    setActionMessage(null);
+    try {
+      const res = await fetch(`${API_BASE}/admin/users/${userId}/status`, {
+        method: 'PATCH',
+        headers: { 'x-user-id': user.id, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: !currentActive })
+      });
+      if (res.ok) {
+        const updatedUser = await res.json();
+        setUsers(users.map(u => u.id === userId ? { ...u, active: updatedUser.active } : u));
+        setActionMessage({ type: 'success', text: `User ${updatedUser.active ? 'activated' : 'deactivated'}` });
+      } else {
+        const err = await res.json();
+        setActionMessage({ type: 'error', text: err.error || 'Failed to update status' });
+      }
+    } catch (error) {
+      setActionMessage({ type: 'error', text: 'Failed to update status' });
+    }
+  };
+
   return (
     <div style={styles.panel}>
       <div style={styles.header}>
@@ -2606,56 +3201,113 @@ function AdminPanel({ user }: { user: AuthUser }) {
       {loading ? (
         <div style={styles.emptyState}><p>Loading...</p></div>
       ) : activeTab === 'users' ? (
-        <div style={styles.tableContainer}>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Name</th>
-                <th style={styles.th}>Email</th>
-                <th style={styles.th}>Role</th>
-                <th style={styles.th}>Experiments</th>
-                <th style={styles.th}>Methods</th>
-                <th style={styles.th}>Status</th>
-                <th style={styles.th}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u: any) => (
-                <tr key={u.id} style={styles.tr}>
-                  <td style={styles.td}>{u.name}</td>
-                  <td style={styles.td}>{u.email || '—'}</td>
-                  <td style={styles.td}>
-                    <span style={{
-                      ...styles.badge,
-                      background: u.role === 'admin' ? '#ef444420' : u.role === 'manager' ? '#f59e0b20' : '#3b82f620',
-                      color: u.role === 'admin' ? '#ef4444' : u.role === 'manager' ? '#f59e0b' : '#3b82f6'
-                    }}>
-                      {u.role}
-                    </span>
-                  </td>
-                  <td style={styles.td}>{u._count?.experiments || 0}</td>
-                  <td style={styles.td}>{u._count?.methods || 0}</td>
-                  <td style={styles.td}>
-                    <span style={{ color: u.active ? '#10b981' : '#ef4444' }}>
-                      {u.active ? '● Active' : '○ Inactive'}
-                    </span>
-                  </td>
-                  <td style={styles.td}>
-                    <button 
-                      style={styles.iconButton} 
-                      onClick={() => loadUserExperiments(u.id)}
-                      title="View Experiments"
-                    >
-                      📂
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {users.length === 0 && (
-            <div style={styles.emptyState}><p>No lab members found.</p></div>
+        <div>
+          {actionMessage && (
+            <div style={{
+              padding: '12px 16px',
+              marginBottom: '16px',
+              borderRadius: '8px',
+              background: actionMessage.type === 'success' ? '#dcfce7' : '#fef2f2',
+              color: actionMessage.type === 'success' ? '#166534' : '#dc2626',
+              fontSize: '14px'
+            }}>
+              {actionMessage.text}
+            </div>
           )}
+          <div style={styles.tableContainer}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Name</th>
+                  <th style={styles.th}>Email</th>
+                  <th style={styles.th}>Role</th>
+                  <th style={styles.th}>Experiments</th>
+                  <th style={styles.th}>Methods</th>
+                  <th style={styles.th}>Status</th>
+                  <th style={styles.th}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((u: any) => (
+                  <tr key={u.id} style={styles.tr}>
+                    <td style={styles.td}>
+                      {u.name}
+                      {u.id === user.id && <span style={{ marginLeft: 6, fontSize: 11, color: '#64748b' }}>(you)</span>}
+                    </td>
+                    <td style={styles.td}>{u.email || '—'}</td>
+                    <td style={styles.td}>
+                      {user.role === 'admin' && u.id !== user.id ? (
+                        <select
+                          value={u.role}
+                          onChange={(e) => updateUserRole(u.id, e.target.value)}
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: '6px',
+                            border: '1px solid #e2e8f0',
+                            background: u.role === 'admin' ? '#fef2f2' : u.role === 'manager' ? '#fffbeb' : '#eff6ff',
+                            color: u.role === 'admin' ? '#dc2626' : u.role === 'manager' ? '#d97706' : '#2563eb',
+                            fontWeight: 600,
+                            fontSize: '13px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <option value="member">Member</option>
+                          <option value="manager">Manager</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                      ) : (
+                        <span style={{
+                          ...styles.badge,
+                          background: u.role === 'admin' ? '#ef444420' : u.role === 'manager' ? '#f59e0b20' : '#3b82f620',
+                          color: u.role === 'admin' ? '#ef4444' : u.role === 'manager' ? '#f59e0b' : '#3b82f6'
+                        }}>
+                          {u.role}
+                        </span>
+                      )}
+                    </td>
+                    <td style={styles.td}>{u._count?.experiments || 0}</td>
+                    <td style={styles.td}>{u._count?.methods || 0}</td>
+                    <td style={styles.td}>
+                      {user.role === 'admin' && u.id !== user.id ? (
+                        <button
+                          onClick={() => toggleUserStatus(u.id, u.active)}
+                          style={{
+                            padding: '4px 10px',
+                            borderRadius: '6px',
+                            border: 'none',
+                            background: u.active ? '#dcfce7' : '#fef2f2',
+                            color: u.active ? '#166534' : '#dc2626',
+                            fontSize: '12px',
+                            cursor: 'pointer',
+                            fontWeight: 500
+                          }}
+                          title={u.active ? 'Click to deactivate' : 'Click to activate'}
+                        >
+                          {u.active ? '● Active' : '○ Inactive'}
+                        </button>
+                      ) : (
+                        <span style={{ color: u.active ? '#10b981' : '#ef4444' }}>
+                          {u.active ? '● Active' : '○ Inactive'}
+                        </span>
+                      )}
+                    </td>
+                    <td style={styles.td}>
+                      <button 
+                        style={styles.iconButton} 
+                        onClick={() => loadUserExperiments(u.id)}
+                        title="View Experiments"
+                      >
+                        📂
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {users.length === 0 && (
+              <div style={styles.emptyState}><p>No lab members found.</p></div>
+            )}
+          </div>
         </div>
       ) : activeTab === 'experiments' ? (
         <div>

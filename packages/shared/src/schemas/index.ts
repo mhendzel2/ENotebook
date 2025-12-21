@@ -593,7 +593,212 @@ export const flowCytometrySchema: JSONSchema = {
   required: ['instrument']
 };
 
+export const chemistrySchema: JSONSchema = {
+  $id: 'eln:modality:chemistry',
+  title: 'Chemistry Parameters',
+  description: 'Parameters for chemistry and chemical synthesis experiments',
+  type: 'object',
+  properties: {
+    reactionType: {
+      type: 'string',
+      title: 'Reaction Type',
+      enum: [
+        'synthesis',
+        'extraction',
+        'purification',
+        'analysis',
+        'titration',
+        'crystallization',
+        'distillation',
+        'chromatography',
+        'spectroscopy',
+        'other'
+      ]
+    },
+    scale: {
+      type: 'string',
+      title: 'Reaction Scale',
+      enum: ['microscale', 'small', 'medium', 'large', 'pilot'],
+      'ui:help': 'Size of the reaction'
+    },
+    reagents: {
+      type: 'array',
+      title: 'Reagents',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', title: 'Reagent Name' },
+          casNumber: { type: 'string', title: 'CAS Number' },
+          amount: { type: 'string', title: 'Amount' },
+          unit: { type: 'string', title: 'Unit', enum: ['mg', 'g', 'kg', 'µL', 'mL', 'L', 'mol', 'mmol', 'µmol'] },
+          equivalents: { type: 'number', title: 'Equivalents' },
+          molWeight: { type: 'number', title: 'MW (g/mol)' },
+          purity: { type: 'string', title: 'Purity' },
+          vendor: { type: 'string', title: 'Vendor' },
+          lotNumber: { type: 'string', title: 'Lot #' }
+        },
+        required: ['name']
+      }
+    },
+    solvents: {
+      type: 'array',
+      title: 'Solvents',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', title: 'Solvent' },
+          volume: { type: 'string', title: 'Volume' },
+          grade: { type: 'string', title: 'Grade', enum: ['ACS', 'HPLC', 'reagent', 'technical', 'anhydrous'] }
+        }
+      }
+    },
+    conditions: {
+      type: 'object',
+      title: 'Reaction Conditions',
+      properties: {
+        temperature: { type: 'string', title: 'Temperature', 'ui:placeholder': '25°C or RT' },
+        pressure: { type: 'string', title: 'Pressure', 'ui:placeholder': '1 atm' },
+        atmosphere: { type: 'string', title: 'Atmosphere', enum: ['air', 'nitrogen', 'argon', 'vacuum', 'hydrogen', 'oxygen'] },
+        time: { type: 'string', title: 'Reaction Time', 'ui:placeholder': '2 h' },
+        stirring: { type: 'string', title: 'Stirring', enum: ['magnetic', 'mechanical', 'none'] },
+        lightConditions: { type: 'string', title: 'Light', enum: ['ambient', 'dark', 'UV', 'visible'] }
+      }
+    },
+    equipment: {
+      type: 'array',
+      title: 'Equipment',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', title: 'Equipment' },
+          settings: { type: 'string', title: 'Settings' }
+        }
+      }
+    },
+    workup: {
+      type: 'object',
+      title: 'Work-up Procedure',
+      properties: {
+        steps: { type: 'string', title: 'Steps', 'ui:widget': 'textarea' },
+        extraction: { type: 'string', title: 'Extraction Solvent' },
+        drying: { type: 'string', title: 'Drying Agent' },
+        filtration: { type: 'string', title: 'Filtration Method' }
+      }
+    },
+    purification: {
+      type: 'object',
+      title: 'Purification',
+      properties: {
+        method: { 
+          type: 'string', 
+          title: 'Method', 
+          enum: ['column_chromatography', 'recrystallization', 'distillation', 'HPLC', 'flash_chromatography', 'precipitation', 'none'] 
+        },
+        conditions: { type: 'string', title: 'Conditions', 'ui:widget': 'textarea' },
+        yield: { type: 'number', title: 'Yield (%)' }
+      }
+    },
+    characterization: {
+      type: 'object',
+      title: 'Characterization',
+      properties: {
+        nmr: {
+          type: 'object',
+          title: 'NMR',
+          properties: {
+            protonNMR: { type: 'string', title: '¹H NMR', 'ui:widget': 'textarea', 'ui:placeholder': 'δ (ppm)' },
+            carbonNMR: { type: 'string', title: '¹³C NMR', 'ui:widget': 'textarea', 'ui:placeholder': 'δ (ppm)' },
+            solvent: { type: 'string', title: 'NMR Solvent', enum: ['CDCl3', 'DMSO-d6', 'D2O', 'CD3OD', 'C6D6', 'acetone-d6'] },
+            frequency: { type: 'number', title: 'Frequency (MHz)', enum: [300, 400, 500, 600, 700, 800] }
+          }
+        },
+        massSpec: {
+          type: 'object',
+          title: 'Mass Spectrometry',
+          properties: {
+            method: { type: 'string', title: 'Method', enum: ['ESI', 'EI', 'MALDI', 'CI', 'APCI', 'FAB'] },
+            calculatedMass: { type: 'number', title: 'Calculated Mass' },
+            observedMass: { type: 'number', title: 'Observed Mass' },
+            formula: { type: 'string', title: 'Molecular Formula' }
+          }
+        },
+        ir: { type: 'string', title: 'IR (cm⁻¹)', 'ui:widget': 'textarea' },
+        meltingPoint: { type: 'string', title: 'Melting Point', 'ui:placeholder': '120-122°C' },
+        opticalRotation: { type: 'string', title: 'Optical Rotation [α]D' },
+        elementalAnalysis: { type: 'string', title: 'Elemental Analysis', 'ui:widget': 'textarea' }
+      }
+    },
+    product: {
+      type: 'object',
+      title: 'Product',
+      properties: {
+        name: { type: 'string', title: 'Product Name' },
+        appearance: { type: 'string', title: 'Appearance', 'ui:placeholder': 'white solid' },
+        mass: { type: 'number', title: 'Mass Obtained (g)' },
+        yield: { type: 'number', title: 'Yield (%)', minimum: 0, maximum: 100 },
+        purity: { type: 'string', title: 'Purity' },
+        storage: { type: 'string', title: 'Storage Conditions' }
+      }
+    },
+    safety: {
+      type: 'object',
+      title: 'Safety',
+      properties: {
+        hazards: { type: 'string', title: 'Hazards', 'ui:widget': 'textarea' },
+        precautions: { type: 'string', title: 'Precautions', 'ui:widget': 'textarea' },
+        ppe: { 
+          type: 'array', 
+          title: 'PPE Required',
+          items: { type: 'string', enum: ['lab_coat', 'safety_glasses', 'gloves', 'fume_hood', 'face_shield', 'respirator'] }
+        },
+        waste: { type: 'string', title: 'Waste Disposal', 'ui:widget': 'textarea' }
+      }
+    }
+  }
+};
+
 // ==================== SCHEMA REGISTRY ====================
+
+// Generic schema for 'other' modality type
+export const otherModalitySchema: JSONSchema = {
+  $id: 'eln:modality:other',
+  title: 'Custom Experiment Parameters',
+  description: 'Generic parameters for custom experiment types',
+  type: 'object',
+  properties: {
+    experimentType: {
+      type: 'string',
+      title: 'Experiment Type',
+      description: 'Describe the type of experiment'
+    },
+    description: {
+      type: 'string',
+      title: 'Description',
+      description: 'Detailed description of the experiment setup'
+    },
+    equipment: {
+      type: 'array',
+      title: 'Equipment Used',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', title: 'Equipment Name' },
+          settings: { type: 'string', title: 'Settings/Configuration' }
+        }
+      }
+    },
+    parameters: {
+      type: 'object',
+      title: 'Custom Parameters',
+      description: 'Define custom key-value parameters'
+    },
+    notes: {
+      type: 'string',
+      title: 'Additional Notes'
+    }
+  },
+  'ui:order': ['experimentType', 'description', 'equipment', 'parameters', 'notes']
+};
 
 export const modalitySchemas: Record<Modality, JSONSchema> = {
   fluorescence: fluorescenceSchema,
@@ -601,7 +806,9 @@ export const modalitySchemas: Record<Modality, JSONSchema> = {
   biophysical: biophysicalSchema,
   molecular_biology: molecularBiologySchema,
   biochemistry: biochemistrySchema,
-  flow_cytometry: flowCytometrySchema
+  flow_cytometry: flowCytometrySchema,
+  chemistry: chemistrySchema,
+  other: otherModalitySchema
 };
 
 export function getModalitySchema(modality: Modality): JSONSchema {
