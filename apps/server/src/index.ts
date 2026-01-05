@@ -157,7 +157,7 @@ async function logChange(
 
 app.use(createMethodsRoutes(prisma, logChange));
 app.use(createExperimentsRoutes(prisma, logChange));
-app.use(createAdminRoutes(prisma));
+app.use(createAdminRoutes(prisma, auditService));
 app.use(createSyncRoutes(prisma));
 app.use(createNotificationsRoutes(prisma));
 app.use(createAuditLogRoutes(prisma));

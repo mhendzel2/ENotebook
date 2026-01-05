@@ -22,3 +22,15 @@ Offline-first desktop ELN with local SQLite storage (sqlcipher optional) and syn
 - Prisma schema lives in `apps/server/prisma/schema.prisma`; run `npx prisma migrate dev` after configuring env.
 - Sync endpoints are stubbed; add conflict handling and persistence next.
 - Renderer UI currently shows placeholder data; connect to local DB/sync service during implementation.
+
+## Auth configuration
+
+The server now uses signed sessions (JWT) instead of trusting a client-supplied `x-user-id` header.
+
+- `AUTH_JWT_SECRET` (recommended in production): secret string (>= 32 chars) used to sign session and password-reset tokens.
+- `CORS_ORIGINS` (recommended): comma-separated list of allowed origins (defaults to `http://localhost:5173`).
+- `BOOTSTRAP_ADMIN_SECRET` (optional but recommended): if set, the first user registration requires `bootstrapSecret` to be provided.
+- `ALLOW_INSECURE_X_USER_ID_AUTH` (not recommended): if set to `true`, re-enables legacy `x-user-id` authentication.
+- `ALLOW_INSECURE_SYNC_HEADER_AUTH` (not recommended): if set to `true`, allows legacy `x-user-id` auth only for `/sync/*`.
+
+Password policy: minimum 12 characters and must include at least 3 of (lowercase, uppercase, number, symbol).

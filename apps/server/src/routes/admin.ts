@@ -7,8 +7,9 @@ import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import type { User } from '@eln/shared/dist/types.js';
 import { issuePasswordResetToken } from '../middleware/sessionAuth.js';
+import type { AuditTrailService } from '../services/auditTrail.js';
 
-export function createAdminRoutes(prisma: PrismaClient): Router {
+export function createAdminRoutes(prisma: PrismaClient, auditService?: AuditTrailService): Router {
   const router = Router();
 
   // Admin: Get all experiments with user information (for lab managers/admins)
@@ -148,6 +149,8 @@ export function createAdminRoutes(prisma: PrismaClient): Router {
         return res.status(404).json({ error: 'User not found' });
       }
 
+      const previousRole = targetUser.role;
+
       // Update the role
       const updatedUser = await prisma.user.update({
         where: { id: userId },
@@ -160,6 +163,27 @@ export function createAdminRoutes(prisma: PrismaClient): Router {
           active: true
         }
       });
+
+      if (auditService) {
+        try {
+          await auditService.log(
+            user.id,
+            user.name,
+            'permission_change',
+            'user',
+            updatedUser.id,
+            {
+              field: 'role',
+              from: previousRole,
+              to: updatedUser.role,
+              targetUser: { id: updatedUser.id, email: updatedUser.email, name: updatedUser.name },
+            },
+            { ipAddress: req.ip, userAgent: req.header('user-agent') || undefined }
+          );
+        } catch {
+          // best-effort
+        }
+      }
 
       res.json(updatedUser);
     } catch (error) {
@@ -188,6 +212,13 @@ export function createAdminRoutes(prisma: PrismaClient): Router {
     }
 
     try {
+      const targetUser = await prisma.user.findUnique({ where: { id: userId } });
+      if (!targetUser) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const previousActive = targetUser.active;
+
       const updatedUser = await prisma.user.update({
         where: { id: userId },
         data: { active },
@@ -199,6 +230,27 @@ export function createAdminRoutes(prisma: PrismaClient): Router {
           active: true
         }
       });
+
+      if (auditService) {
+        try {
+          await auditService.log(
+            user.id,
+            user.name,
+            'update',
+            'user',
+            updatedUser.id,
+            {
+              field: 'active',
+              from: previousActive,
+              to: updatedUser.active,
+              targetUser: { id: updatedUser.id, email: updatedUser.email, name: updatedUser.name },
+            },
+            { ipAddress: req.ip, userAgent: req.header('user-agent') || undefined }
+          );
+        } catch {
+          // best-effort
+        }
+      }
 
       res.json(updatedUser);
     } catch (error) {
