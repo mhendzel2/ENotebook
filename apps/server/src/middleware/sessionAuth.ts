@@ -43,12 +43,21 @@ function getBearerToken(req: Request): string | null {
   return m?.[1]?.trim() || null;
 }
 
-function getSessionToken(req: Request): string | null {
+export function getSessionTokenFromRequest(req: Request): string | null {
   const bearer = getBearerToken(req);
   if (bearer) return bearer;
 
   const cookies = parseCookie(req.header('cookie'));
   return cookies[COOKIE_NAME] || null;
+}
+
+export async function verifySessionToken(token: string): Promise<string | null> {
+  try {
+    const { payload } = await jwtVerify(token, SECRET_KEY, { issuer: ISSUER, audience: AUDIENCE });
+    return typeof payload.sub === 'string' ? payload.sub : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function issueSessionToken(userId: string, opts?: { expiresInSeconds?: number }): Promise<string> {
@@ -104,15 +113,10 @@ export function createSessionAuthMiddleware(prisma: PrismaClient) {
     }
 
     // Prefer signed session.
-    const token = getSessionToken(req);
+    const token = getSessionTokenFromRequest(req);
     if (token) {
       try {
-        const { payload } = await jwtVerify(token, SECRET_KEY, {
-          issuer: ISSUER,
-          audience: AUDIENCE,
-        });
-
-        const userId = typeof payload.sub === 'string' ? payload.sub : null;
+        const userId = await verifySessionToken(token);
         if (!userId) {
           return res.status(401).json({ error: 'Invalid session' });
         }

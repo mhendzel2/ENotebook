@@ -9,7 +9,9 @@ import {
   clearSessionCookie,
   issuePasswordResetToken,
   issueSessionToken,
+  getSessionTokenFromRequest,
   setSessionCookie,
+  verifySessionToken,
   verifyPasswordResetToken,
 } from '../middleware/sessionAuth.js';
 
@@ -233,7 +235,33 @@ export function createAuthRoutes(prisma: PrismaClient, auditService?: AuditTrail
    * POST /api/auth/logout
    * Logout user (clears any server-side session if implemented)
    */
-  router.post('/api/auth/logout', async (_req, res) => {
+  router.post('/api/auth/logout', async (req, res) => {
+    // Best-effort audit log (logout is allowed even when already logged out)
+    if (auditService) {
+      try {
+        const token = getSessionTokenFromRequest(req);
+        if (token) {
+          const userId = await verifySessionToken(token);
+          if (userId) {
+            const user = await prisma.user.findUnique({ where: { id: userId } });
+            if (user) {
+              await auditService.log(
+                user.id,
+                user.name,
+                'logout',
+                'user',
+                user.id,
+                { success: true },
+                { ipAddress: req.ip, userAgent: req.header('user-agent') || undefined }
+              );
+            }
+          }
+        }
+      } catch {
+        // best-effort
+      }
+    }
+
     clearSessionCookie(res);
     res.json({ success: true });
   });

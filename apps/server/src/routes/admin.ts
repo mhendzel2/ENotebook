@@ -288,6 +288,26 @@ export function createAdminRoutes(prisma: PrismaClient, auditService?: AuditTrai
       // Issue a signed, expiring reset token (deliver out-of-band)
       const resetToken = await issuePasswordResetToken(userId);
 
+      if (auditService) {
+        try {
+          await auditService.log(
+            user.id,
+            user.name,
+            'update',
+            'user',
+            targetUser.id,
+            {
+              method: 'admin-reset-token',
+              expiresInSeconds: 60 * 15,
+              targetUser: { id: targetUser.id, email: targetUser.email, name: targetUser.name },
+            },
+            { ipAddress: req.ip, userAgent: req.header('user-agent') || undefined }
+          );
+        } catch {
+          // best-effort
+        }
+      }
+
       res.json({
         success: true,
         message: `Password reset token generated for ${targetUser.name}`,
