@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000';
+
 interface LoginPageProps {
   onLogin: (user: AuthUser) => void;
   onCreateAccount: () => void;
@@ -35,7 +37,7 @@ export function LoginPage({ onLogin, onCreateAccount, existingUser, onContinueEx
     setLoading(true);
 
     try {
-      const response = await fetch('http://localhost:4000/api/auth/login', {
+      const response = await fetch(`${API_BASE}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -203,7 +205,7 @@ export function CreateAccountPage({ onBack, onAccountCreated }: {
     setLoading(true);
 
     try {
-      const response = await fetch('http://localhost:4000/api/auth/register', {
+      const response = await fetch(`${API_BASE}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password }),

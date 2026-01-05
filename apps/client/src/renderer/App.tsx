@@ -10,7 +10,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
 type NavTab = 'dashboard' | 'methods' | 'experiments' | 'projects' | 'inventory' | 'workflows' | 'labels' | 'calculators' | 'troubleshooting' | 'analytics' | 'sync' | 'settings' | 'admin';
 type AuthState = 'login' | 'register' | 'authenticated';
 
-const API_BASE = 'http://localhost:4000';
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000';
 
 function App() {
   const [authState, setAuthState] = useState<AuthState>('login');
@@ -228,7 +228,7 @@ function App() {
         {tab === 'calculators' && <CalculatorsPanel />}
         {tab === 'troubleshooting' && <TroubleshootingPanel user={user!} />}
         {tab === 'analytics' && <AnalyticsPanel user={user!} />}
-        {tab === 'sync' && <SyncPanel />}
+        {tab === 'sync' && <SyncPanel user={user!} />}
         {tab === 'settings' && <SettingsPanel user={user!} />}
         {tab === 'admin' && <AdminPanel user={user!} />}
       </main>
@@ -2858,7 +2858,111 @@ function AnalyticsPanel({ user }: { user: AuthUser }) {
 }
 
 // Sync Panel
-function SyncPanel() {
+function SyncPanel({ user }: { user: AuthUser }) {
+  const [exporting, setExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
+
+  const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+    return btoa(binary);
+  };
+
+  const handleExportUsb = useCallback(async () => {
+    setExportMessage(null);
+    setExporting(true);
+    try {
+      const res = await fetch(`${API_BASE}/sync/export`, {
+        headers: { 'x-user-id': user.id },
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(text || `Export failed (${res.status})`);
+      }
+
+      const data = await res.arrayBuffer();
+      const safeTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const defaultName = `eln-usb-sync-${safeTimestamp}.zip`;
+
+      const elnApi = (window as any).eln as undefined | { saveZip?: (defaultPath: string, data: ArrayBuffer) => Promise<any> };
+      if (elnApi?.saveZip) {
+        const result = await elnApi.saveZip(defaultName, data);
+        if (result?.canceled) {
+          setExportMessage('Export cancelled.');
+        } else {
+          setExportMessage(`Exported to: ${result?.filePath || defaultName}`);
+        }
+        return;
+      }
+
+      // Fallback for non-Electron environments: trigger a browser download.
+      const blob = new Blob([data], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = defaultName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setExportMessage('Export downloaded.');
+    } catch (error: any) {
+      setExportMessage(error?.message || 'Export failed.');
+    } finally {
+      setExporting(false);
+    }
+  }, [user.id]);
+
+  const handleImportUsb = useCallback(async () => {
+    setImportMessage(null);
+    setImporting(true);
+    try {
+      const elnApi = (window as any).eln as undefined | {
+        openZip?: () => Promise<{ canceled: true } | { canceled: false; filePath: string; data: ArrayBuffer }>;
+      };
+      if (!elnApi?.openZip) {
+        throw new Error('Import is only available in the desktop app.');
+      }
+
+      const pick = await elnApi.openZip();
+      if ((pick as any)?.canceled) {
+        setImportMessage('Import cancelled.');
+        return;
+      }
+
+      const bundleBase64 = arrayBufferToBase64((pick as any).data);
+      const res = await fetch(`${API_BASE}/sync/import`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': user.id,
+        },
+        body: JSON.stringify({ bundleBase64 }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(text || `Import failed (${res.status})`);
+      }
+      const result = await res.json().catch(() => null);
+      if (result?.status === 'imported') {
+        setImportMessage(`Imported. Created: ${result.created}, Updated: ${result.updated}, Files: ${result.filesWritten}`);
+      } else {
+        setImportMessage('Import completed.');
+      }
+    } catch (error: any) {
+      setImportMessage(error?.message || 'Import failed.');
+    } finally {
+      setImporting(false);
+    }
+  }, [user.id]);
+
   return (
     <div style={styles.panel}>
       <div style={styles.header}>
@@ -2875,6 +2979,20 @@ function SyncPanel() {
           <li>Last synced: Just now</li>
           <li>Pending changes: 0</li>
         </ul>
+
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '12px', flexWrap: 'wrap' }}>
+          <button style={styles.secondaryButton} onClick={handleExportUsb} disabled={exporting}>
+            {exporting ? 'Exporting…' : 'Export database (USB)'}
+          </button>
+          {exportMessage && <span style={{ fontSize: '12px', color: '#374151' }}>{exportMessage}</span>}
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '10px', flexWrap: 'wrap' }}>
+          <button style={styles.secondaryButton} onClick={handleImportUsb} disabled={importing}>
+            {importing ? 'Importing…' : 'Import bundle (USB)'}
+          </button>
+          {importMessage && <span style={{ fontSize: '12px', color: '#374151' }}>{importMessage}</span>}
+        </div>
       </div>
     </div>
   );

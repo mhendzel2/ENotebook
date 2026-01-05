@@ -80,6 +80,61 @@ paths:
                     type: string
                     format: date-time
 
+  /sync/export:
+    get:
+      summary: Export portable sync bundle (USB)
+      description: |
+        Generates a portable ZIP bundle intended for offline transfer (e.g., USB key).
+        The ZIP includes a `db.json` snapshot plus `attachments/` and `reports/` folders when present.
+      tags: [sync]
+      responses:
+        '200':
+          description: ZIP export bundle
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+
+  /sync/import:
+    post:
+      summary: Import portable sync bundle (USB)
+      description: |
+        Imports a portable ZIP bundle produced by `GET /sync/export`.
+        The request body must be JSON containing a base64-encoded ZIP.
+        Intended for air-gapped transfer via USB.
+      tags: [sync]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bundleBase64]
+              properties:
+                bundleBase64:
+                  type: string
+                  description: Base64-encoded ZIP file contents.
+      responses:
+        '200':
+          description: Import summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: imported
+                  created:
+                    type: integer
+                  updated:
+                    type: integer
+                  skipped:
+                    type: integer
+                  filesWritten:
+                    type: integer
+
   # ==================== EXPERIMENTS ====================
   /experiments:
     get:
