@@ -5,9 +5,8 @@
 
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcrypt';
-import crypto from 'crypto';
 import type { User } from '@eln/shared/dist/types.js';
+import { issuePasswordResetToken } from '../middleware/sessionAuth.js';
 
 export function createAdminRoutes(prisma: PrismaClient): Router {
   const router = Router();
@@ -234,22 +233,15 @@ export function createAdminRoutes(prisma: PrismaClient): Router {
     }
 
     try {
-      // Generate a secure temporary password
-      const tempPassword = crypto.randomBytes(4).toString('hex'); // 8 character hex string
-      const passwordHash = await bcrypt.hash(tempPassword, 10);
+      // Issue a signed, expiring reset token (deliver out-of-band)
+      const resetToken = await issuePasswordResetToken(userId);
 
-      // Update the user's password
-      await prisma.user.update({
-        where: { id: userId },
-        data: { passwordHash }
-      });
-
-      // Return the temporary password (admin/manager will communicate it to the user)
       res.json({
         success: true,
-        message: `Password reset successfully for ${targetUser.name}`,
-        temporaryPassword: tempPassword,
-        note: 'Please securely communicate this temporary password to the user. They should change it upon next login.'
+        message: `Password reset token generated for ${targetUser.name}`,
+        resetToken,
+        expiresInSeconds: 60 * 15,
+        note: 'Deliver this token out-of-band. The user must call /api/auth/reset-password with the token and a new password.'
       });
     } catch (error) {
       console.error('Failed to reset user password:', error);

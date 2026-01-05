@@ -26,21 +26,9 @@ function App() {
     let cancelled = false;
 
     const restoreSession = async () => {
-      const savedUser = localStorage.getItem('eln-user');
-      if (!savedUser) return;
-
       try {
-        const parsed = JSON.parse(savedUser) as AuthUser;
-        if (!parsed?.id) {
-          localStorage.removeItem('eln-user');
-          return;
-        }
-
-        // Validate the stored user against the server. This prevents "silent failures"
-        // after resetting/initializing the database (stale localStorage user IDs).
-        const res = await fetch(`${API_BASE}/api/auth/me`, {
-          headers: { 'x-user-id': parsed.id }
-        });
+        // Validate cookie-backed session and fetch the current user.
+        const res = await fetch(`${API_BASE}/api/auth/me`);
 
         if (!res.ok) {
           localStorage.removeItem('eln-user');

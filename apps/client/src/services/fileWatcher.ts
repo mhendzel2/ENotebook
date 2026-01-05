@@ -15,7 +15,7 @@ import { findModalityForFileType, getAllSupportedFileTypes } from '@eln/shared';
 
 interface FileWatcherConfig {
   serverUrl: string;
-  userId: string;
+  token?: string;
   pollingInterval?: number; // Fallback polling interval in ms
   debounceDelay?: number;
 }
@@ -384,7 +384,7 @@ export class FileWatcherService extends EventEmitter {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-id': this.config.userId
+            ...(this.config.token ? { 'Authorization': `Bearer ${this.config.token}` } : {})
         },
         body: JSON.stringify({
           experimentId,

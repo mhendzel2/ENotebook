@@ -7,6 +7,7 @@ import http from 'http';
 import { PrismaClient } from '@prisma/client';
 import type { User } from '@eln/shared/dist/types.js';
 import { createApiKeyRoutes, apiKeyAuth, requirePermission as apiKeyRequirePermission } from './middleware/apiKey.js';
+import { createSessionAuthMiddleware } from './middleware/sessionAuth.js';
 import { createExportRoutes } from './routes/export.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createAttachmentRoutes } from './routes/attachments.js';
@@ -55,72 +56,31 @@ const poolService = new SamplePoolService(prisma);
 // Access MDB imports are uploaded as base64 JSON; base64 expands payload size by ~33%.
 // Keep this above the import route's 50MB raw-file cap.
 app.use(express.json({ limit: '100mb' }));
-app.use(cors());
+app.set('trust proxy', 1);
+
+const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin(origin, callback) {
+    // Allow requests without an Origin header (curl, server-to-server, Electron file://)
+    if (!origin || origin === 'null') return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('CORS origin not allowed'));
+  },
+  credentials: true,
+}));
 app.use(helmet());
 app.use(morgan('dev'));
 
-// Auth routes (no authentication required)
-app.use(createAuthRoutes(prisma));
+// Auth context: API keys and signed sessions
+app.use(apiKeyAuth(prisma));
+app.use(createSessionAuthMiddleware(prisma));
 
-// Simple header-based auth stub with API key fallback.
-app.use(async (req, res, next) => {
-  // Skip auth for health check and auth routes
-  if (req.path === '/health' || req.path.startsWith('/api/auth')) {
-    return next();
-  }
-  
-  // Try API key auth first
-  const apiKey = req.header('x-api-key');
-  if (apiKey) {
-    try {
-      // Hash the provided key
-      const keyHash = crypto.createHash('sha256').update(apiKey).digest('hex');
-      
-      const apiKeyRecord = await prisma.aPIKey.findFirst({
-        where: { keyHash, revokedAt: null },
-        include: { user: true }
-      });
-      
-      if (!apiKeyRecord) {
-        return res.status(401).json({ error: 'Invalid API key' });
-      }
-      
-      // Check expiration
-      if (apiKeyRecord.expiresAt && apiKeyRecord.expiresAt < new Date()) {
-        return res.status(401).json({ error: 'API key expired' });
-      }
-      
-      // Update last used
-      await prisma.aPIKey.update({
-        where: { id: apiKeyRecord.id },
-        data: { lastUsedAt: new Date() }
-      });
-      
-      // Attach user and key info
-      (req as any).user = apiKeyRecord.user;
-      (req as any).apiKey = apiKeyRecord;
-      return next();
-    } catch (error) {
-      return res.status(500).json({ error: 'API key validation error' });
-    }
-  }
-  
-  // Fall back to user ID header auth
-  const userId = req.header('x-user-id');
-  if (!userId) {
-    return res.status(401).json({ error: 'Missing x-user-id or x-api-key header' });
-  }
-  try {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-    (req as any).user = user;
-    next();
-  } catch (error) {
-    res.status(500).json({ error: 'Database error during auth' });
-  }
-});
+// Auth routes (login/register are public; /me and password ops require session)
+app.use(createAuthRoutes(prisma, auditService));
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString(), websocket: true });
