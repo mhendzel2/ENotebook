@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
 import { z } from 'zod';
+import { hashPassword, verifyPassword } from '../services/password.js';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -14,25 +15,7 @@ const registerSchema = z.object({
   password: z.string().min(8),
 });
 
-/**
- * Hash password using SHA-256 with salt
- */
-function hashPassword(password: string, salt?: string): { hash: string; salt: string } {
-  const useSalt = salt || crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, useSalt, 10000, 64, 'sha512').toString('hex');
-  return { hash, salt: useSalt };
-}
-
-/**
- * Verify password against stored hash
- */
-function verifyPassword(password: string, storedHash: string): boolean {
-  // storedHash format: salt:hash
-  const [salt, hash] = storedHash.split(':');
-  if (!salt || !hash) return false;
-  const { hash: computedHash } = hashPassword(password, salt);
-  return computedHash === hash;
-}
+// Password hashing/verification lives in ../services/password.ts
 
 export function createAuthRoutes(prisma: PrismaClient) {
   const router = Router();
@@ -112,7 +95,7 @@ export function createAuthRoutes(prisma: PrismaClient) {
       }
 
       // Verify password
-      if (!verifyPassword(password, user.passwordHash)) {
+      if (!(await verifyPassword(password, user.passwordHash))) {
         return res.status(401).json({ error: 'Invalid email or password' });
       }
 
@@ -194,7 +177,7 @@ export function createAuthRoutes(prisma: PrismaClient) {
       }
 
       // Verify current password
-      if (!verifyPassword(currentPassword, user.passwordHash)) {
+      if (!(await verifyPassword(currentPassword, user.passwordHash))) {
         return res.status(401).json({ error: 'Current password is incorrect' });
       }
 

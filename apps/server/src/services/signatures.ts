@@ -12,6 +12,7 @@
 
 import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
+import { verifyPassword } from './password.js';
 import { Request, Response, Router } from 'express';
 
 // ==================== TYPES ====================
@@ -199,12 +200,8 @@ export class SignatureService {
 
     // Re-authenticate if password provided (required for regulated environments)
     if (request.password) {
-      const passwordHash = crypto
-        .createHash('sha256')
-        .update(request.password)
-        .digest('hex');
-      
-      if (passwordHash !== user.passwordHash) {
+      const ok = await verifyPassword(request.password, user.passwordHash);
+      if (!ok) {
         throw new Error('Authentication failed');
       }
     }

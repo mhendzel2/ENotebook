@@ -5,9 +5,9 @@
 
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import type { User } from '@eln/shared/dist/types.js';
+import { hashPassword } from '../services/password.js';
 
 export function createAdminRoutes(prisma: PrismaClient): Router {
   const router = Router();
@@ -236,7 +236,8 @@ export function createAdminRoutes(prisma: PrismaClient): Router {
     try {
       // Generate a secure temporary password
       const tempPassword = crypto.randomBytes(4).toString('hex'); // 8 character hex string
-      const passwordHash = await bcrypt.hash(tempPassword, 10);
+      const { hash, salt } = hashPassword(tempPassword);
+      const passwordHash = `${salt}:${hash}`;
 
       // Update the user's password
       await prisma.user.update({
