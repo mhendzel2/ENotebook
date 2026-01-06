@@ -197,8 +197,8 @@ export function CreateAccountPage({ onBack, onAccountCreated }: {
       return;
     }
 
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters');
+    if (password.length < 12) {
+      setError('Password must be at least 12 characters');
       return;
     }
 
@@ -271,7 +271,7 @@ export function CreateAccountPage({ onBack, onAccountCreated }: {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               style={styles.input}
-              placeholder="At least 8 characters"
+              placeholder="At least 12 characters"
               required
             />
           </div>
