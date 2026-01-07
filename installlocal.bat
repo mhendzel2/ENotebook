@@ -31,18 +31,36 @@ if %ERRORLEVEL% neq 0 (
 for /f "tokens=*" %%i in ('npm -v') do set NPM_VERSION=%%i
 echo [OK] npm found: %NPM_VERSION%
 
-:: Check for Docker
+:: Check for Docker CLI (docker.exe)
 where docker >nul 2>nul
 if %ERRORLEVEL% neq 0 (
-    echo [ERROR] Docker is not installed or not in PATH.
-    echo Please install Docker Desktop from https://www.docker.com/products/docker-desktop
-    echo.
-    echo After installing Docker Desktop:
-    echo 1. Start Docker Desktop
-    echo 2. Wait for it to fully start (whale icon in system tray)
-    echo 3. Run this installer again
-    pause
-    exit /b 1
+    set "DOCKER_EXE="
+
+    :: Try common Docker Desktop install locations
+    if exist "%ProgramFiles%\Docker\Docker\resources\bin\docker.exe" (
+        set "DOCKER_EXE=%ProgramFiles%\Docker\Docker\resources\bin\docker.exe"
+    )
+    if not defined DOCKER_EXE if exist "%LocalAppData%\Programs\Docker\Docker\resources\bin\docker.exe" (
+        set "DOCKER_EXE=%LocalAppData%\Programs\Docker\Docker\resources\bin\docker.exe"
+    )
+
+    if defined DOCKER_EXE (
+        for %%d in ("!DOCKER_EXE!") do set "DOCKER_BIN=%%~dpd"
+        set "PATH=!DOCKER_BIN!;%PATH%"
+        echo [INFO] Docker CLI found at "!DOCKER_EXE!".
+        echo [INFO] Added "!DOCKER_BIN!" to PATH for this session.
+    ) else (
+        echo [ERROR] Docker CLI (docker.exe) is not installed or not in PATH.
+        echo Please install Docker Desktop from https://www.docker.com/products/docker-desktop
+        echo.
+        echo If Docker Desktop is already installed, restart your terminal/VS Code,
+        echo or add Docker's CLI folder to PATH, typically:
+        echo   %ProgramFiles%\Docker\Docker\resources\bin
+        echo.
+        echo After that, re-run this installer.
+        pause
+        exit /b 1
+    )
 )
 
 :: Check if Docker is running
