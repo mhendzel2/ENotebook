@@ -39,15 +39,16 @@ if %ERRORLEVEL% neq 0 set "DB_MODE=local"
 set "USE_DOCKER=y"
 if /i "%DB_MODE%"=="local" set "USE_DOCKER=n"
 
-set /p USE_DOCKER="Use Docker for PostgreSQL? (y/n) [%USE_DOCKER%]: "
-if "%USE_DOCKER%"=="" set "USE_DOCKER=%USE_DOCKER%"
+set "USE_DOCKER_DEFAULT=%USE_DOCKER%"
+set /p USE_DOCKER="Use Docker for PostgreSQL? (y/n) [%USE_DOCKER_DEFAULT%]: "
+if "%USE_DOCKER%"=="" set "USE_DOCKER=%USE_DOCKER_DEFAULT%"
 if /i "%USE_DOCKER%"=="n" set "DB_MODE=local"
 if /i "%USE_DOCKER%"=="y" set "DB_MODE=docker"
 
 if /i "%DB_MODE%"=="docker" (
     :: Check for Docker CLI (docker.exe)
     where docker >nul 2>nul
-    if %ERRORLEVEL% neq 0 (
+    if errorlevel 1 (
         set "DOCKER_EXE="
 
         :: Try common Docker Desktop install locations
@@ -75,7 +76,7 @@ if /i "%DB_MODE%"=="docker" (
 
     :: Check if Docker is running
     docker info >nul 2>nul
-    if %ERRORLEVEL% neq 0 (
+    if errorlevel 1 (
         echo [ERROR] Docker is not running.
         echo Please start Docker Desktop and wait for it to fully initialize.
         echo.
@@ -190,7 +191,7 @@ if /i "%DB_MODE%"=="docker" (
 
     :: Quick TCP check (does not validate credentials)
     powershell -NoProfile -Command "$r=Test-NetConnection -ComputerName $env:DB_HOST -Port [int]$env:DB_PORT; if($r.TcpTestSucceeded){exit 0}else{exit 1}" >nul 2>nul
-    if %ERRORLEVEL% neq 0 (
+    if errorlevel 1 (
         echo [WARNING] Could not connect to !DB_HOST!:!DB_PORT!.
         echo Please ensure PostgreSQL is running and accepting TCP connections.
         echo.
