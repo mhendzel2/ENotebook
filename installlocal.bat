@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 
 echo ============================================
 echo    Electronic Lab Notebook - Local Install
-echo    (PostgreSQL via Docker)
+echo    (PostgreSQL: Docker or Local)
 echo ============================================
 echo.
 
