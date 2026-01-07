@@ -50,7 +50,7 @@ if %ERRORLEVEL% neq 0 (
         echo [INFO] Docker CLI found at "!DOCKER_EXE!".
         echo [INFO] Added "!DOCKER_BIN!" to PATH for this session.
     ) else (
-        echo [ERROR] Docker CLI (docker.exe) is not installed or not in PATH.
+        echo [ERROR] Docker CLI ^(docker.exe^) is not installed or not in PATH.
         echo Please install Docker Desktop from https://www.docker.com/products/docker-desktop
         echo.
         echo If Docker Desktop is already installed, restart your terminal/VS Code,
