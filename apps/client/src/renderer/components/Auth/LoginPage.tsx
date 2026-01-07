@@ -30,10 +30,13 @@ export function LoginPage({ onLogin, onCreateAccount, existingUser, onContinueEx
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [hint, setHint] = useState<string | null>(null);
+  const [hintLoading, setHintLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setHint(null);
     setLoading(true);
 
     try {
@@ -61,6 +64,37 @@ export function LoginPage({ onLogin, onCreateAccount, existingUser, onContinueEx
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGetHint = async () => {
+    setError(null);
+    setHint(null);
+
+    if (!email || !email.includes('@')) {
+      setError('Enter your email first to get your hint');
+      return;
+    }
+
+    setHintLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/password-hint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to retrieve hint');
+      }
+
+      const data = await response.json();
+      setHint(typeof data?.hint === 'string' ? data.hint : null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to retrieve hint');
+    } finally {
+      setHintLoading(false);
     }
   };
 
@@ -144,6 +178,23 @@ export function LoginPage({ onLogin, onCreateAccount, existingUser, onContinueEx
             />
           </div>
 
+          <button
+            type="button"
+            onClick={handleGetHint}
+            style={styles.secondaryButton}
+            disabled={hintLoading}
+          >
+            {hintLoading ? 'Getting hint...' : 'Get password hint'}
+          </button>
+
+          {hint !== null && (
+            <div style={styles.sessionBanner}>
+              <div style={styles.sessionText}>
+                <strong>Password hint:</strong> {hint || 'No hint set for this account.'}
+              </div>
+            </div>
+          )}
+
           <button type="submit" style={styles.button} disabled={loading}>
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
@@ -184,6 +235,7 @@ export function CreateAccountPage({ onBack, onAccountCreated }: {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordHint, setPasswordHint] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -208,7 +260,7 @@ export function CreateAccountPage({ onBack, onAccountCreated }: {
       const response = await fetch(`${API_BASE}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({ name, email, password, passwordHint: passwordHint.trim() ? passwordHint.trim() : undefined }),
       });
 
       if (!response.ok) {
@@ -273,6 +325,17 @@ export function CreateAccountPage({ onBack, onAccountCreated }: {
               style={styles.input}
               placeholder="At least 12 characters"
               required
+            />
+          </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Password Hint (optional)</label>
+            <input
+              type="text"
+              value={passwordHint}
+              onChange={(e) => setPasswordHint(e.target.value)}
+              style={styles.input}
+              placeholder="A clue to help you remember"
             />
           </div>
 

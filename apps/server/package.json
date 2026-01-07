@@ -6,8 +6,11 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "build": "tsc -p tsconfig.json",
-    "lint": "echo \"(lint server)\""
+    "build": "npx prisma generate && tsc -p tsconfig.json",
+    "lint": "echo \"(lint server)\"",
+    "admin:list-users": "node scripts/list_users.mjs",
+    "admin:set-user-role": "node scripts/set_user_role.mjs",
+    "admin:set-user-password": "node scripts/set_user_password.mjs"
   },
   "dependencies": {
     "@eln/shared": "*",

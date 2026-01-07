@@ -34,3 +34,11 @@ The server now uses signed sessions (JWT) instead of trusting a client-supplied 
 - `ALLOW_INSECURE_SYNC_HEADER_AUTH` (not recommended): if set to `true`, allows legacy `x-user-id` auth only for `/sync/*`.
 
 Password policy: minimum 12 characters and must include at least 3 of (lowercase, uppercase, number, symbol).
+
+## Password recovery (admin)
+Passwords are stored as hashes and cannot be recovered, but they can be reset.
+
+- If an admin is already signed in, they can generate a password reset token for a user via the admin API.
+- If all admin access is lost, use the local admin scripts (requires database connectivity):
+  - Windows: `npm.cmd --workspace apps/server run admin:list-users`
+  - Windows: `npm.cmd --workspace apps/server run admin:set-user-password -- <email-or-user-id> --temp`

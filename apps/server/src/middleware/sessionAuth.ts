@@ -102,6 +102,7 @@ export function createSessionAuthMiddleware(prisma: PrismaClient) {
     if (req.path === '/api/auth/register') return next();
     if (req.path === '/api/auth/logout') return next();
     if (req.path === '/api/auth/reset-password') return next();
+    if (req.path === '/api/auth/password-hint') return next();
 
     // If API key middleware already attached a user, enforce active and continue.
     const existingUser = (req as any).user;
