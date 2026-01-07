@@ -25,6 +25,7 @@ const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(12),
   bootstrapSecret: z.string().optional(),
+  passwordHint: z.string().max(200).optional(),
 });
 
 function isBcryptHash(storedHash: string): boolean {
@@ -80,6 +81,13 @@ const passwordLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+const passwordHintLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 export function createAuthRoutes(prisma: PrismaClient, auditService?: AuditTrailService) {
   const router = Router();
 
@@ -93,7 +101,7 @@ export function createAuthRoutes(prisma: PrismaClient, auditService?: AuditTrail
       return res.status(400).json({ error: parse.error.flatten() });
     }
 
-    const { name, email, password, bootstrapSecret } = parse.data;
+    const { name, email, password, bootstrapSecret, passwordHint } = parse.data;
 
     const policyError = validatePasswordPolicy(password);
     if (policyError) {
@@ -130,6 +138,7 @@ export function createAuthRoutes(prisma: PrismaClient, auditService?: AuditTrail
           name,
           email,
           passwordHash,
+          passwordHint: passwordHint?.trim() ? passwordHint.trim() : null,
           role,
           active: true,
         },
@@ -157,6 +166,39 @@ export function createAuthRoutes(prisma: PrismaClient, auditService?: AuditTrail
     } catch (error) {
       console.error('Registration error:', error);
       res.status(500).json({ error: 'Failed to create account' });
+    }
+  });
+
+  /**
+   * POST /api/auth/password-hint
+   * Returns the stored password hint (if set) for the provided email.
+   * Note: A hint helps a user remember a password; it does not recover/decrypt it.
+   */
+  router.post('/api/auth/password-hint', passwordHintLimiter, async (req, res) => {
+    const schema = z.object({ email: z.string().email() });
+    const parse = schema.safeParse(req.body);
+    if (!parse.success) {
+      return res.status(400).json({ error: parse.error.flatten() });
+    }
+
+    const { email } = parse.data;
+
+    try {
+      const user = await prisma.user.findUnique({
+        where: { email },
+        select: { passwordHint: true, active: true },
+      });
+
+      // Always return 200 to reduce account enumeration. If the email doesn't exist or is inactive,
+      // return null.
+      if (!user || !user.active) {
+        return res.json({ hint: null });
+      }
+
+      return res.json({ hint: user.passwordHint || null });
+    } catch (error) {
+      console.error('Password hint error:', error);
+      return res.status(500).json({ error: 'Failed to retrieve hint' });
     }
   });
 

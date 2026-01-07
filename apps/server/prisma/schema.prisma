@@ -13,6 +13,7 @@ model User {
   email       String?  @unique
   role        Role
   passwordHash String
+  passwordHint String?
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
 
