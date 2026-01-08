@@ -173,7 +173,7 @@ echo PORT=%SERVER_PORT%
 echo NODE_ENV=production
 echo.
 echo # Security
-echo JWT_SECRET=%JWT_SECRET%
+echo AUTH_JWT_SECRET=%JWT_SECRET%
 echo.
 echo # File Storage
 echo ATTACHMENT_DIR=../../data/attachments
@@ -252,7 +252,7 @@ set /p ADMIN_PASSWORD="Enter admin password [changeme]: "
 if "%ADMIN_PASSWORD%"=="" set ADMIN_PASSWORD=changeme
 
 cd apps\server
-call npx ts-node -e "const { PrismaClient } = require('@prisma/client'); const crypto = require('crypto'); const prisma = new PrismaClient(); async function main() { const existing = await prisma.user.findFirst({ where: { role: 'admin' } }); if (!existing) { await prisma.user.create({ data: { id: 'admin-server', name: '%ADMIN_NAME%', email: '%ADMIN_EMAIL%', role: 'admin', passwordHash: crypto.createHash('sha256').update('%ADMIN_PASSWORD%').digest('hex'), active: true } }); console.log('Admin user created successfully.'); } else { console.log('Admin user already exists.'); } } main().catch(console.error).finally(() => prisma.$disconnect());" 2>nul
+call npx ts-node -e "const { PrismaClient } = require('@prisma/client'); const bcrypt = require('bcrypt'); const prisma = new PrismaClient(); async function main() { const existing = await prisma.user.findFirst({ where: { role: 'admin' } }); if (!existing) { const name = process.env.ADMIN_NAME || 'Lab Manager'; const email = process.env.ADMIN_EMAIL || 'admin@lab.local'; const password = process.env.ADMIN_PASSWORD || 'changeme'; const passwordHash = await bcrypt.hash(password, 12); await prisma.user.create({ data: { id: 'admin-server', name, email, role: 'admin', passwordHash, active: true } }); console.log('Admin user created successfully.'); } else { console.log('Admin user already exists.'); } } main().catch(console.error).finally(() => prisma.$disconnect());" 2>nul
 cd ..\..
 echo [OK] Admin user configured.
 echo.

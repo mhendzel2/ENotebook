@@ -49,18 +49,14 @@ if /i "%USE_DOCKER%"=="y" set "DB_MODE=docker"
 if not defined PG_HOST_PORT set "PG_HOST_PORT=5432"
 
 if /i "%DB_MODE%"=="docker" (
-    :: Check for Docker CLI (docker.exe)
+    :: Ensure Docker CLI is available (Docker Desktop sometimes isn't on PATH)
     where docker >nul 2>nul
     if errorlevel 1 (
         set "DOCKER_EXE="
 
         :: Try common Docker Desktop install locations
-        if exist "%ProgramFiles%\Docker\Docker\resources\bin\docker.exe" (
-            set "DOCKER_EXE=%ProgramFiles%\Docker\Docker\resources\bin\docker.exe"
-        )
-        if not defined DOCKER_EXE if exist "%LocalAppData%\Programs\Docker\Docker\resources\bin\docker.exe" (
-            set "DOCKER_EXE=%LocalAppData%\Programs\Docker\Docker\resources\bin\docker.exe"
-        )
+        if exist "%ProgramFiles%\Docker\Docker\resources\bin\docker.exe" set "DOCKER_EXE=%ProgramFiles%\Docker\Docker\resources\bin\docker.exe"
+        if not defined DOCKER_EXE if exist "%LocalAppData%\Programs\Docker\Docker\resources\bin\docker.exe" set "DOCKER_EXE=%LocalAppData%\Programs\Docker\Docker\resources\bin\docker.exe"
 
         if defined DOCKER_EXE (
             for %%d in ("!DOCKER_EXE!") do set "DOCKER_BIN=%%~dpd"
@@ -68,10 +64,10 @@ if /i "%DB_MODE%"=="docker" (
             echo [INFO] Docker CLI found at "!DOCKER_EXE!".
             echo [INFO] Added "!DOCKER_BIN!" to PATH for this session.
         ) else (
-            echo [ERROR] Docker CLI ^(docker.exe^) is not installed or not in PATH.
+            echo [ERROR] Docker CLI (docker.exe) is not installed or not in PATH.
             echo.
             echo Option A: Install Docker Desktop from https://www.docker.com/products/docker-desktop
-            echo Option B: Re-run this installer and choose local PostgreSQL ^(no Docker^)
+            echo Option B: Re-run this installer and choose local PostgreSQL (no Docker)
             pause
             exit /b 1
         )
@@ -83,7 +79,7 @@ if /i "%DB_MODE%"=="docker" (
         echo [ERROR] Docker is not running.
         echo Please start Docker Desktop and wait for it to fully initialize.
         echo.
-        echo Or re-run this installer and choose local PostgreSQL ^(no Docker^).
+        echo Or re-run this installer and choose local PostgreSQL (no Docker).
         pause
         exit /b 1
     )
@@ -91,7 +87,7 @@ if /i "%DB_MODE%"=="docker" (
     echo [OK] Docker found and running.
     echo.
 
-    :: Choose a free host port for the Postgres container (avoid conflict with local PostgreSQL on 5432)
+    :: Choose a host port for the Postgres container (avoid conflict with local PostgreSQL on 5432)
     set "PG_HOST_PORT="
 
     :: If the container already exists, reuse its published port
@@ -257,6 +253,7 @@ if /i "%DB_MODE%"=="docker" (
 
     echo [OK] Local PostgreSQL selected.
 )
+
 echo.
 
 :: Install root dependencies
@@ -384,14 +381,7 @@ echo [STEP 8/8] Creating default admin user...
 cd apps\server
 
 :: Use Node.js directly to create the user
-setlocal DisableDelayedExpansion
-node -e "const { PrismaClient } = require('@prisma/client'); const crypto = require('crypto'); const prisma = new PrismaClient(); async function main() { try { const existing = await prisma.user.findFirst(); if (!existing) { await prisma.user.create({ data: { name: 'Local Admin', email: 'admin@local', role: 'admin', passwordHash: crypto.createHash('sha256').update('changeme').digest('hex'), active: true } }); console.log('[OK] Default admin user created.'); } else { console.log('[INFO] Users already exist, skipping.'); } } catch(e) { console.log('[ERROR] ' + e.message); process.exitCode = 1; } finally { await prisma.$disconnect(); } } main();"
-set "ADMIN_CREATE_RC=%ERRORLEVEL%"
-endlocal & set "ADMIN_CREATE_RC=%ADMIN_CREATE_RC%"
-if not "%ADMIN_CREATE_RC%"=="0" (
-    echo [WARNING] Failed to create default admin user automatically.
-    echo [TIP] You can create a user later via the admin route or seed scripts.
-)
+node -e "const crypto=require('crypto'); const { PrismaClient }=require('@prisma/client'); const prisma=new PrismaClient(); async function main(){ try{ const existing=await prisma.user.findFirst(); if(!existing){ const salt=crypto.randomBytes(16).toString('hex'); const hash=crypto.pbkdf2Sync('changeme', salt, 10000, 64, 'sha512').toString('hex'); await prisma.user.create({ data:{ name:'Local Admin', email:'admin@local', role:'admin', passwordHash: salt + ':' + hash, active:true } }); console.log('[OK] Default admin user created.'); } else { console.log('[INFO] Users already exist, skipping.'); } } catch(e){ console.log('[WARNING] ' + e.message); } finally { await prisma.$disconnect(); } } main();"
 
 cd ..\..
 echo.
@@ -400,6 +390,7 @@ echo.
 echo Creating startup scripts...
 
 :: Create start-server.bat
+if not exist "%INSTALL_DIR%start-server.bat" (
 (
 echo @echo off
 echo setlocal
@@ -424,8 +415,10 @@ echo cd apps\server
 echo echo Starting ELN Server on http://localhost:4000
 echo call npm run dev
 ) > "%INSTALL_DIR%start-server.bat"
+)
 
 :: Create start-client.bat
+if not exist "%INSTALL_DIR%start-client.bat" (
 (
 echo @echo off
 echo setlocal
@@ -474,8 +467,10 @@ echo echo Starting ELN Client...
 echo cd apps\client
 echo call npm run dev
 ) > "%INSTALL_DIR%start-client.bat"
+)
 
 :: Create start-all.bat (opens both in separate windows)
+if not exist "%INSTALL_DIR%start-all.bat" (
 (
 echo @echo off
 echo setlocal
@@ -508,11 +503,7 @@ echo     ^)
 echo     echo Waiting for PostgreSQL to initialize...
 echo     timeout /t 5 /nobreak ^>nul
 echo ^)
-if /i "%DB_MODE%"=="docker" (
 echo echo [OK] PostgreSQL is running on localhost:!PG_HOST_PORT!
-) else (
-echo echo [OK] PostgreSQL is running on localhost:!PG_HOST_PORT!
-)
 echo echo.
 echo.
 echo echo Starting server and client...
@@ -527,6 +518,7 @@ echo echo.
 echo echo Press any key to exit this window...
 echo pause ^>nul
 ) > "%INSTALL_DIR%start-all.bat"
+)
 
 :: Create database management scripts
 (
@@ -555,6 +547,7 @@ echo pause
 ) > "%INSTALL_DIR%manage-db.bat"
 
 :: Create sync-now.bat for manual sync when connected
+if not exist "%INSTALL_DIR%sync-now.bat" (
 (
 echo @echo off
 echo echo ============================================
@@ -569,8 +562,10 @@ echo echo 3. Run this script again
 echo echo.
 echo pause
 ) > "%INSTALL_DIR%sync-now.bat"
+)
 
 :: Create backup script
+if not exist "%INSTALL_DIR%backup-local.bat" (
 (
 echo @echo off
 echo setlocal
@@ -587,6 +582,7 @@ echo for /f "skip=7 delims=" %%%%f in ^('dir /b /o-d "%%BACKUP_DIR%%\enotebook_*
 echo echo.
 echo pause
 ) > "%INSTALL_DIR%backup-local.bat"
+)
 
 :: Create stop-all script
 (
@@ -618,7 +614,7 @@ echo   - Container: enotebook-postgres
 if /i "%DB_MODE%"=="docker" (
 echo   - Port: !PG_HOST_PORT!
 ) else (
-echo   - Port: 5432
+echo   - Host/Port: !DB_HOST!:!DB_PORT!
 )
 echo   - Data stored in: data\postgres\
 echo.

@@ -13,6 +13,7 @@ cd /d "%INSTALL_DIR%"
 :: Check if this is a server or local installation
 if exist "apps\server\.env" (
     for /f "tokens=2 delims==" %%a in ('findstr /i "DB_TYPE" apps\server\.env 2^>nul') do set DB_TYPE=%%a
+    for /f "tokens=2 delims==" %%a in ('findstr /i "DB_PROVIDER" apps\server\.env 2^>nul') do set DB_PROVIDER=%%a
     for /f "tokens=2 delims==" %%a in ('findstr /i "SYNC_SERVER_URL" apps\server\.env 2^>nul') do set SYNC_URL=%%a
 )
 
@@ -23,6 +24,10 @@ if exist "config.local.json" (
 ) 
 if defined DB_TYPE (
     if /i "%DB_TYPE%"=="postgresql" set MODE=server
+)
+if "%MODE%"=="unknown" if defined DB_PROVIDER (
+    set "DB_PROVIDER=!DB_PROVIDER:"=!"
+    if /i "!DB_PROVIDER!"=="postgresql" set MODE=server
 )
 if "%DB_TYPE%"=="" (
     if exist "apps\server\prisma\dev.db" set MODE=local

@@ -1,46 +1,39 @@
 @echo off
-setlocal
-cd /d "%~dp0"
+setlocal enabledelayedexpansion
 
-echo ============================================
-echo    Electronic Lab Notebook - Starting
-echo ============================================
-echo.
+set "ROOT=%~dp0"
+cd /d "%ROOT%"
 
-:: Check Docker
 docker info >nul 2>nul
 if %ERRORLEVEL% neq 0 (
-    echo [ERROR] Docker is not running. Please start Docker Desktop.
-    pause
-    exit /b 1
+	echo [ERROR] Docker is not running. Start Docker Desktop and try again.
+	pause
+	exit /b 1
 )
 
-:: Ensure PostgreSQL is running
-echo Checking PostgreSQL database...
-docker ps --format "{{.Names}}" | findstr /x "enotebook-postgres" >nul 2>nul
+set "PG_HOST_PORT=5432"
+for /f "usebackq tokens=2 delims=:" %%p in (`docker port enotebook-postgres 5432/tcp 2^>nul ^| findstr /i "0.0.0.0"`) do (
+	set "PG_HOST_PORT=%%p"
+	goto :got_port
+)
+:got_port
+
+docker container inspect enotebook-postgres >nul 2>nul
 if %ERRORLEVEL% neq 0 (
-    echo Starting PostgreSQL container...
-    docker start enotebook-postgres >nul 2>nul
-    if %ERRORLEVEL% neq 0 (
-        echo [ERROR] PostgreSQL container not found. Run installlocal.bat first.
-        pause
-        exit /b 1
-    )
-    echo Waiting for PostgreSQL to initialize...
-    timeout /t 5 /nobreak >nul
+	echo [ERROR] PostgreSQL container not found: enotebook-postgres
+	echo Run installlocal.bat first.
+	pause
+	exit /b 1
 )
-echo [OK] PostgreSQL is running.
-echo.
 
-:: Start server in background
+docker start enotebook-postgres >nul 2>nul
+
 echo Starting ELN Server...
-start "ELN Server" /min cmd /c "cd /d %~dp0apps\server ^&^& npm run dev"
+start "ELN Server" /min cmd /c "set DB_PROVIDER=postgresql ^& set DATABASE_URL=postgresql://enotebook:enotebook_secure_pwd@localhost:%PG_HOST_PORT%/enotebook?schema=public ^& cd /d %ROOT%apps\server ^&^& npm run dev"
 
-:: Wait for server to start
 echo Waiting for server to initialize...
-timeout /t 3 /nobreak >nul
+timeout /t 3 >nul
 
-:: Start client
 echo Starting ELN Client...
-cd apps\client
+cd /d "%ROOT%apps\client"
 call npm run dev
