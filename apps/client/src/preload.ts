@@ -1,7 +1,9 @@
-import { contextBridge } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('eln', {
-  version: appVersion()
+  version: appVersion(),
+  saveZip: (defaultPath: string, data: ArrayBuffer) => ipcRenderer.invoke('eln:saveFile', { defaultPath, data }),
+  openZip: () => ipcRenderer.invoke('eln:openZip'),
 });
 
 function appVersion() {

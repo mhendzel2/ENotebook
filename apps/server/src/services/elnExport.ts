@@ -1027,7 +1027,7 @@ Generated: ${new Date().toISOString()}
               params: expData.params ?? undefined,
               observations: expData.observations ?? undefined,
               resultsSummary: expData.resultsSummary || null,
-              tags: importTags
+              tags: importTags as string[]
             }
           });
 

@@ -5,11 +5,11 @@
 
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcrypt';
-import crypto from 'crypto';
 import type { User } from '@eln/shared/dist/types.js';
+import { issuePasswordResetToken } from '../middleware/sessionAuth.js';
+import type { AuditTrailService } from '../services/auditTrail.js';
 
-export function createAdminRoutes(prisma: PrismaClient): Router {
+export function createAdminRoutes(prisma: PrismaClient, auditService?: AuditTrailService): Router {
   const router = Router();
 
   // Admin: Get all experiments with user information (for lab managers/admins)
@@ -149,6 +149,8 @@ export function createAdminRoutes(prisma: PrismaClient): Router {
         return res.status(404).json({ error: 'User not found' });
       }
 
+      const previousRole = targetUser.role;
+
       // Update the role
       const updatedUser = await prisma.user.update({
         where: { id: userId },
@@ -161,6 +163,27 @@ export function createAdminRoutes(prisma: PrismaClient): Router {
           active: true
         }
       });
+
+      if (auditService) {
+        try {
+          await auditService.log(
+            user.id,
+            user.name,
+            'permission_change',
+            'user',
+            updatedUser.id,
+            {
+              field: 'role',
+              from: previousRole,
+              to: updatedUser.role,
+              targetUser: { id: updatedUser.id, email: updatedUser.email, name: updatedUser.name },
+            },
+            { ipAddress: req.ip, userAgent: req.header('user-agent') || undefined }
+          );
+        } catch {
+          // best-effort
+        }
+      }
 
       res.json(updatedUser);
     } catch (error) {
@@ -189,6 +212,13 @@ export function createAdminRoutes(prisma: PrismaClient): Router {
     }
 
     try {
+      const targetUser = await prisma.user.findUnique({ where: { id: userId } });
+      if (!targetUser) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const previousActive = targetUser.active;
+
       const updatedUser = await prisma.user.update({
         where: { id: userId },
         data: { active },
@@ -200,6 +230,27 @@ export function createAdminRoutes(prisma: PrismaClient): Router {
           active: true
         }
       });
+
+      if (auditService) {
+        try {
+          await auditService.log(
+            user.id,
+            user.name,
+            'update',
+            'user',
+            updatedUser.id,
+            {
+              field: 'active',
+              from: previousActive,
+              to: updatedUser.active,
+              targetUser: { id: updatedUser.id, email: updatedUser.email, name: updatedUser.name },
+            },
+            { ipAddress: req.ip, userAgent: req.header('user-agent') || undefined }
+          );
+        } catch {
+          // best-effort
+        }
+      }
 
       res.json(updatedUser);
     } catch (error) {
@@ -234,22 +285,35 @@ export function createAdminRoutes(prisma: PrismaClient): Router {
     }
 
     try {
-      // Generate a secure temporary password
-      const tempPassword = crypto.randomBytes(4).toString('hex'); // 8 character hex string
-      const passwordHash = await bcrypt.hash(tempPassword, 10);
+      // Issue a signed, expiring reset token (deliver out-of-band)
+      const resetToken = await issuePasswordResetToken(userId);
 
-      // Update the user's password
-      await prisma.user.update({
-        where: { id: userId },
-        data: { passwordHash }
-      });
+      if (auditService) {
+        try {
+          await auditService.log(
+            user.id,
+            user.name,
+            'update',
+            'user',
+            targetUser.id,
+            {
+              method: 'admin-reset-token',
+              expiresInSeconds: 60 * 15,
+              targetUser: { id: targetUser.id, email: targetUser.email, name: targetUser.name },
+            },
+            { ipAddress: req.ip, userAgent: req.header('user-agent') || undefined }
+          );
+        } catch {
+          // best-effort
+        }
+      }
 
-      // Return the temporary password (admin/manager will communicate it to the user)
       res.json({
         success: true,
-        message: `Password reset successfully for ${targetUser.name}`,
-        temporaryPassword: tempPassword,
-        note: 'Please securely communicate this temporary password to the user. They should change it upon next login.'
+        message: `Password reset token generated for ${targetUser.name}`,
+        resetToken,
+        expiresInSeconds: 60 * 15,
+        note: 'Deliver this token out-of-band. The user must call /api/auth/reset-password with the token and a new password.'
       });
     } catch (error) {
       console.error('Failed to reset user password:', error);

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Report, REPORT_TYPES, ReportType, REPORT_ALLOWED_EXTENSIONS } from '@eln/shared';
 
 interface ReportUploaderProps {
@@ -15,6 +15,7 @@ interface UploadProgress {
   progress: number;
   status: 'pending' | 'uploading' | 'success' | 'error';
   error?: string;
+  abortController?: AbortController;
 }
 
 // Max file size: 100MB for reports
@@ -33,6 +34,13 @@ export function ReportUploader({
   const [selectedType, setSelectedType] = useState<ReportType>('custom');
   const [notes, setNotes] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const validateFile = (file: File): string | null => {
     if (file.size > MAX_FILE_SIZE) {
@@ -54,9 +62,11 @@ export function ReportUploader({
       return null;
     }
 
+    const abortController = new AbortController();
+
     setUploads(prev => [
       ...prev,
-      { filename: file.name, progress: 0, status: 'uploading' }
+      { filename: file.name, progress: 0, status: 'uploading', abortController }
     ]);
 
     try {
@@ -87,6 +97,7 @@ export function ReportUploader({
           'Content-Type': 'application/json',
           'x-user-id': userId,
         },
+        signal: abortController.signal,
         body: JSON.stringify({
           filename: file.name,
           // Many Windows/Electron drops provide empty MIME types; let the server infer from filename.
@@ -102,8 +113,19 @@ export function ReportUploader({
       ));
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Upload failed');
+        let errorText = '';
+        try {
+          const parsed = await response.json();
+          errorText = parsed?.error || '';
+        } catch {
+          try {
+            errorText = await response.text();
+          } catch {
+            // ignore
+          }
+        }
+        const detail = errorText ? `: ${errorText}` : '';
+        throw new Error(`Upload failed (HTTP ${response.status})${detail}`);
       }
 
       const report = await response.json() as Report;
@@ -112,17 +134,34 @@ export function ReportUploader({
         u.filename === file.name ? { ...u, progress: 100, status: 'success' } : u
       ));
 
-      setTimeout(() => {
-        setUploads(prev => prev.filter(u => u.filename !== file.name));
+      const successTimeout = setTimeout(() => {
+        if (mountedRef.current) {
+          setUploads(prev => prev.filter(u => u.filename !== file.name));
+        }
       }, 2000);
+
+      if (!mountedRef.current) {
+        clearTimeout(successTimeout);
+      }
 
       return report;
     } catch (error) {
+      if (abortController.signal.aborted) {
+        return null;
+      }
       const errorMsg = error instanceof Error ? error.message : 'Upload failed';
       setUploads(prev => prev.map(u =>
         u.filename === file.name ? { ...u, status: 'error', error: errorMsg } : u
       ));
       onError?.(errorMsg);
+
+      if (mountedRef.current) {
+        setTimeout(() => {
+          if (mountedRef.current) {
+            setUploads(prev => prev.filter(u => u.filename !== file.name));
+          }
+        }, 5000);
+      }
       return null;
     }
   };
@@ -181,6 +220,14 @@ export function ReportUploader({
     }
   }, [disabled]);
 
+  const handleCancelUpload = useCallback((filename: string) => {
+    setUploads(prev => {
+      const target = prev.find(u => u.filename === filename);
+      target?.abortController?.abort();
+      return prev.filter(u => u.filename !== filename);
+    });
+  }, []);
+
   const removeUpload = useCallback((filename: string) => {
     setUploads(prev => prev.filter(u => u.filename !== filename));
   }, []);
@@ -232,7 +279,12 @@ export function ReportUploader({
         onClick={handleClick}
         role="button"
         tabIndex={0}
-        onKeyDown={(e) => e.key === 'Enter' && handleClick()}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleClick();
+          }
+        }}
       >
         <div className="drop-zone-content">
           <svg
@@ -271,13 +323,24 @@ export function ReportUploader({
                 <span className="upload-filename" title={upload.filename}>
                   {upload.filename}
                 </span>
+                {upload.status === 'uploading' && (
+                  <button
+                    className="remove-upload"
+                    onClick={() => handleCancelUpload(upload.filename)}
+                    title="Cancel upload"
+                    aria-label={`Cancel upload for ${upload.filename}`}
+                  >
+                    Cancel
+                  </button>
+                )}
                 {upload.status === 'error' && (
                   <button
                     className="remove-upload"
                     onClick={() => removeUpload(upload.filename)}
                     title="Dismiss"
+                    aria-label={`Dismiss upload error for ${upload.filename}`}
                   >
-                    ×
+                    Dismiss
                   </button>
                 )}
               </div>
@@ -288,11 +351,11 @@ export function ReportUploader({
                 />
               </div>
               {upload.status === 'success' && (
-                <span className="upload-status-icon">✓</span>
+                <span className="upload-status-icon" role="status" aria-label="Upload succeeded">Success</span>
               )}
               {upload.status === 'error' && (
-                <span className="upload-error" title={upload.error}>
-                  ✕ {upload.error}
+                <span className="upload-error" title={upload.error} role="status" aria-live="polite">
+                  {upload.error}
                 </span>
               )}
             </div>
