@@ -8,7 +8,7 @@ set "TIMESTAMP=%TIMESTAMP: =0%"
 
 if not exist "%BACKUP_DIR%" mkdir "%BACKUP_DIR%" >nul 2>nul
 
-docker.exe container inspect enotebook-postgres >nul 2>nul
+docker container inspect enotebook-postgres >nul 2>nul
 if %ERRORLEVEL% neq 0 (
 	echo [ERROR] PostgreSQL container not found: enotebook-postgres
 	echo Run installlocal.bat first.
@@ -17,17 +17,15 @@ if %ERRORLEVEL% neq 0 (
 )
 
 echo Creating PostgreSQL backup...
-docker.exe exec enotebook-postgres pg_dump -U enotebook enotebook > "%BACKUP_DIR%\enotebook_%TIMESTAMP%.sql"
+docker exec enotebook-postgres pg_dump -U enotebook enotebook > "%BACKUP_DIR%\enotebook_%TIMESTAMP%.sql"
 if %ERRORLEVEL% neq 0 (
 	echo [ERROR] Backup failed.
 	pause
 	exit /b 1
 )
-
 echo Backup saved to: %BACKUP_DIR%\enotebook_%TIMESTAMP%.sql
 echo.
 
 :: Keep only last 7 backups
 for /f "skip=7 delims=" %%f in ('dir /b /o-d "%BACKUP_DIR%\enotebook_*.sql" 2^>nul') do del "%BACKUP_DIR%\%%f"
-
 pause
