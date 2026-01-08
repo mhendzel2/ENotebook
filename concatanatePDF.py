@@ -1,8 +1,141 @@
 import os
+import sys
+import argparse
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from pypdf import PdfWriter, PdfReader
 import threading
+
+try:
+    from pypdf import PdfWriter, PdfReader
+except ModuleNotFoundError as e:
+    missing_module = getattr(e, "name", "pypdf")
+    if missing_module == "pypdf":
+        help_text = (
+            "Missing dependency: pypdf\n\n"
+            "Install it with:\n"
+            "  python -m pip install pypdf\n\n"
+            "Important: run that using the same Python you use to start this script."
+        )
+        try:
+            messagebox.showerror("PDF Collator - Missing Dependency", help_text)
+        except Exception:
+            print(help_text)
+        raise SystemExit(1)
+    raise
+
+
+def _write_batch(file_list, output_path, index, log):
+    output_filename = f"Collated_Part_{index:03d}.pdf"
+    full_output_path = os.path.join(output_path, output_filename)
+
+    log(f"Writing {output_filename} ({len(file_list)} files)...")
+    merger = PdfWriter()
+    try:
+        for pdf in file_list:
+            try:
+                merger.append(pdf, import_outline=False)
+            except Exception as e:
+                log(f" >> SKIP (append failed): {os.path.basename(pdf)} ({e})")
+
+        with open(full_output_path, "wb") as f_out:
+            merger.write(f_out)
+        log(f"Saved: {output_filename}")
+    finally:
+        try:
+            merger.close()
+        except Exception:
+            pass
+
+
+def collate_pdfs(source_path, output_path, target_bytes, log, status=None):
+    if not os.path.isdir(source_path):
+        raise ValueError(f"Source folder does not exist: {source_path}")
+    if not os.path.isdir(output_path):
+        raise ValueError(f"Output folder does not exist: {output_path}")
+
+    log(f"Scanning {source_path}...")
+
+    all_files = [f for f in os.listdir(source_path) if f.lower().endswith(".pdf")]
+    all_files.sort()
+    if not all_files:
+        raise ValueError("No PDF files found in source directory.")
+
+    total_scan_count = len(all_files)
+
+    log("Phase 1: Scanning for locked/corrupt files...")
+    valid_files = []
+    excluded_files = []
+
+    for i, filename in enumerate(all_files):
+        file_path = os.path.join(source_path, filename)
+
+        is_locked = False
+        try:
+            reader = PdfReader(file_path)
+            if reader.is_encrypted:
+                try:
+                    _ = len(reader.pages)
+                except Exception:
+                    is_locked = True
+        except Exception:
+            is_locked = True
+
+        if is_locked:
+            excluded_files.append(filename)
+            log(f" >> EXCLUDED: {filename} (Locked/Corrupt)")
+        else:
+            valid_files.append(filename)
+
+        if status and i % 5 == 0:
+            status(f"Scanning: {i + 1}/{total_scan_count}...")
+
+    if excluded_files:
+        log("\n--- EXCLUSION REPORT ---")
+        log(f"Skipped {len(excluded_files)} files (see above).")
+        log(f"Proceeding with {len(valid_files)} valid files.")
+        log("------------------------\n")
+    else:
+        log("Scan complete. All files are valid.\n")
+
+    if not valid_files:
+        raise ValueError("All files were excluded (locked or corrupt).")
+
+    log(f"Phase 2: Collating {len(valid_files)} files...")
+
+    current_batch = []
+    current_batch_size = 0
+    batch_index = 1
+    total_valid = len(valid_files)
+
+    for i, filename in enumerate(valid_files):
+        file_path = os.path.join(source_path, filename)
+        try:
+            file_size = os.path.getsize(file_path)
+        except OSError:
+            log(f"Skipping {filename}: Could not read file size.")
+            continue
+
+        if current_batch and (current_batch_size + file_size > target_bytes):
+            _write_batch(current_batch, output_path, batch_index, log)
+            batch_index += 1
+            current_batch = []
+            current_batch_size = 0
+
+        current_batch.append(file_path)
+        current_batch_size += file_size
+
+        if status and i % 5 == 0:
+            status(f"Collating: {i + 1}/{total_valid}...")
+
+    if current_batch:
+        _write_batch(current_batch, output_path, batch_index, log)
+
+    return {
+        "processed": len(valid_files),
+        "skipped": len(excluded_files),
+        "skipped_files": excluded_files,
+        "batches": batch_index,
+    }
 
 class PDFCollatorApp:
     def __init__(self, root):
@@ -13,7 +146,7 @@ class PDFCollatorApp:
         # Variables
         self.source_dir = tk.StringVar()
         self.output_dir = tk.StringVar()
-        self.target_size_str = tk.StringVar(value="150") 
+        self.target_size_str = tk.StringVar(value="80")
         self.status_var = tk.StringVar(value="Ready")
         self.is_processing = False
 
@@ -43,7 +176,7 @@ class PDFCollatorApp:
         ttk.Label(settings_frame, text="Max File Size (MB):").pack(side=tk.LEFT, padx=5)
         
         # Presets
-        presets = ["10", "25", "50", "100", "150", "200", "500"]
+        presets = ["10", "25", "50", "80", "100", "150", "200", "500"]
         size_combo = ttk.Combobox(settings_frame, textvariable=self.target_size_str, values=presets, width=10)
         size_combo.pack(side=tk.LEFT, padx=5)
 
@@ -123,114 +256,24 @@ class PDFCollatorApp:
                 size_mb = float(self.target_size_str.get())
                 target_bytes = size_mb * 1024 * 1024
             except ValueError:
-                self.log("Invalid size format. Defaulting to 150MB.")
-                target_bytes = 150.0 * 1024 * 1024
+                self.log("Invalid size format. Defaulting to 80MB.")
+                target_bytes = 80.0 * 1024 * 1024
             
-            self.log(f"Scanning {source_path}...")
-            
-            # 1. Get List of all PDFs
-            all_files = [
-                f for f in os.listdir(source_path) 
-                if f.lower().endswith('.pdf')
-            ]
-            all_files.sort()
-            
-            if not all_files:
-                self.log("No PDF files found in source directory.")
-                self.finish_processing()
-                return
-
-            total_scan_count = len(all_files)
-            
-            # --- PHASE 1: FILTERING LOCKED FILES ---
-            self.log("Phase 1: Scanning for locked/corrupt files...")
-            
-            valid_files = []
-            excluded_files = []
-
-            for i, filename in enumerate(all_files):
-                file_path = os.path.join(source_path, filename)
-                
-                # Check if readable
-                is_locked = False
-                try:
-                    reader = PdfReader(file_path)
-                    if reader.is_encrypted:
-                        # Try to read page count to see if we have access (sometimes pass is blank)
-                        try:
-                            _ = len(reader.pages)
-                        except:
-                            is_locked = True
-                except Exception:
-                    # If PdfReader crashes completely, the file is likely corrupt
-                    is_locked = True
-
-                if is_locked:
-                    excluded_files.append(filename)
-                    self.log(f" >> EXCLUDED: {filename} (Locked/Corrupt)")
-                else:
-                    valid_files.append(filename)
-
-                # Progress update for scan
-                if i % 5 == 0:
-                     self.status_var.set(f"Scanning: {i+1}/{total_scan_count}...")
-
-            # Report exclusion results
-            if excluded_files:
-                self.log(f"\n--- EXCLUSION REPORT ---")
-                self.log(f"Skipped {len(excluded_files)} files (see above).")
-                self.log(f"Proceeding with {len(valid_files)} valid files.")
-                self.log(f"------------------------\n")
-            else:
-                self.log("Scan complete. All files are valid.\n")
-
-            if not valid_files:
-                self.log("Error: No valid files remaining to process.")
-                messagebox.showerror("Error", "All files were excluded (locked or corrupt).")
-                self.finish_processing()
-                return
-
-            # --- PHASE 2: PROCESSING & COLLATING ---
-            self.log(f"Phase 2: Collating {len(valid_files)} files...")
-            
-            current_batch = []
-            current_batch_size = 0
-            batch_index = 1
-            total_valid = len(valid_files)
-
-            for i, filename in enumerate(valid_files):
-                file_path = os.path.join(source_path, filename)
-                try:
-                    file_size = os.path.getsize(file_path)
-                except OSError:
-                    self.log(f"Skipping {filename}: Could not read file size.")
-                    continue
-
-                # Check if adding this file exceeds target (unless batch is empty)
-                if current_batch and (current_batch_size + file_size > target_bytes):
-                    self.write_batch(current_batch, output_path, batch_index)
-                    batch_index += 1
-                    current_batch = []
-                    current_batch_size = 0
-
-                current_batch.append(file_path)
-                current_batch_size += file_size
-                
-                if i % 5 == 0:
-                    self.status_var.set(f"Collating: {i+1}/{total_valid}...")
-
-            # Write final batch
-            if current_batch:
-                self.write_batch(current_batch, output_path, batch_index)
+            result = collate_pdfs(
+                source_path=source_path,
+                output_path=output_path,
+                target_bytes=target_bytes,
+                log=self.log,
+                status=self.status_var.set,
+            )
 
             self.log("Done! Processing complete.")
-            
-            # Final Success Message with details
-            msg = f"Completed!\n\nProcessed: {len(valid_files)} files"
-            if excluded_files:
-                msg += f"\nSkipped: {len(excluded_files)} files (Locked/Corrupt)"
+
+            msg = f"Completed!\n\nProcessed: {result['processed']} files"
+            if result["skipped"]:
+                msg += f"\nSkipped: {result['skipped']} files (Locked/Corrupt)"
                 msg += "\n(Check log for list of skipped files)"
-            
+
             messagebox.showinfo("Success", msg)
 
         except Exception as e:
@@ -241,25 +284,10 @@ class PDFCollatorApp:
             self.finish_processing()
 
     def write_batch(self, file_list, output_path, index):
-        output_filename = f"Collated_Part_{index:03d}.pdf"
-        full_output_path = os.path.join(output_path, output_filename)
-        
-        self.log(f"Writing {output_filename} ({len(file_list)} files)...")
-        
-        merger = PdfWriter()
-        
         try:
-            for pdf in file_list:
-                merger.append(pdf)
-            
-            with open(full_output_path, "wb") as f_out:
-                merger.write(f_out)
-                
-            merger.close()
-            self.log(f"Saved: {output_filename}")
-            
+            _write_batch(file_list, output_path, index, self.log)
         except Exception as e:
-            self.log(f"Failed to write {output_filename}: {str(e)}")
+            self.log(f"Failed to write Collated_Part_{index:03d}.pdf: {str(e)}")
 
     def finish_processing(self):
         self.is_processing = False
@@ -267,6 +295,31 @@ class PDFCollatorApp:
         self.status_var.set("Ready")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Collate PDFs into batches by approximate max size.")
+    parser.add_argument("--source", help="Source folder containing PDFs")
+    parser.add_argument("--output", help="Output folder for collated PDFs")
+    parser.add_argument("--size-mb", type=float, default=80.0, help="Max output file size in MB (approximate)")
+    args = parser.parse_args()
+
+    if args.source and args.output:
+        target_bytes = args.size_mb * 1024 * 1024
+        try:
+            result = collate_pdfs(
+                source_path=args.source,
+                output_path=args.output,
+                target_bytes=target_bytes,
+                log=print,
+                status=lambda s: None,
+            )
+            print("Done! Processing complete.")
+            print(f"Processed: {result['processed']} files")
+            if result["skipped"]:
+                print(f"Skipped: {result['skipped']} locked/corrupt files")
+            raise SystemExit(0)
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            raise SystemExit(1)
+
     root = tk.Tk()
     app = PDFCollatorApp(root)
     root.mainloop()
