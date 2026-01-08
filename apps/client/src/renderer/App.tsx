@@ -836,6 +836,7 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
   const [title, setTitle] = useState(experiment.title);
   const [project, setProject] = useState(experiment.project || '');
   const [modality, setModality] = useState<string>(experiment.modality);
+  const [customModality, setCustomModality] = useState((experiment as any).customModality || '');
   const [protocolRef, setProtocolRef] = useState(experiment.protocolRef || '');
   const [observations, setObservations] = useState(() => {
     if (!experiment.observations) return '';
@@ -845,6 +846,7 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
     }
     return JSON.stringify(experiment.observations, null, 2);
   });
+  const [troubleshootingNotes, setTroubleshootingNotes] = useState((experiment as any).troubleshootingNotes || '');
   const [resultsSummary, setResultsSummary] = useState(experiment.resultsSummary || '');
   const [dataLink, setDataLink] = useState(experiment.dataLink || '');
   const [status, setStatus] = useState<string>(experiment.status || 'draft');
@@ -871,8 +873,10 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
           title,
           project: project || null,
           modality: modality || 'molecular_biology',
+          customModality: modality === 'other' ? customModality : null,
           protocolRef: protocolRef || null,
           observations: { text: observations },
+          troubleshootingNotes: troubleshootingNotes || null,
           resultsSummary: resultsSummary || null,
           dataLink: dataLink || null,
           status,
@@ -979,13 +983,24 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
             </div>
             <div style={styles.formRow}>
               <div style={styles.formField}>
-                <label style={styles.formLabel}>Modality *</label>
+                <label style={styles.formLabel}>Experiment Type *</label>
                 <select value={modality} onChange={e => setModality(e.target.value)} style={styles.formSelect} required>
-                  <option value="">Select modality</option>
+                  <option value="">Select type</option>
                   {MODALITIES.map(m => (
                     <option key={m} value={m}>{formatModality(m)}</option>
                   ))}
                 </select>
+                {modality === 'other' && (
+                  <input
+                    type="text"
+                    value={customModality}
+                    onChange={e => setCustomModality(e.target.value)}
+                    style={{ ...styles.formInput, marginTop: '8px' }}
+                    placeholder="Enter custom experiment type..."
+                    maxLength={100}
+                    required
+                  />
+                )}
               </div>
               <div style={styles.formField}>
                 <label style={styles.formLabel}>Protocol</label>
@@ -1016,6 +1031,19 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
                 rows={6}
                 placeholder="Record your observations..."
               />
+            </div>
+            <div style={styles.formField}>
+              <label style={styles.formLabel}>🔧 Troubleshooting Notes</label>
+              <textarea
+                value={troubleshootingNotes}
+                onChange={e => setTroubleshootingNotes(e.target.value)}
+                style={{ ...styles.formTextarea, background: '#fffbeb', borderColor: '#fcd34d' }}
+                rows={4}
+                placeholder="Document any issues, debugging steps, or troubleshooting notes..."
+              />
+              <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#92400e' }}>
+                Use this section to document problems encountered and how they were resolved.
+              </p>
             </div>
             <div style={styles.formField}>
               <label style={styles.formLabel}>Results Summary</label>
@@ -2766,6 +2794,262 @@ function CalculatorsPanel() {
   );
 }
 
+// Troubleshooting Panel - Shows experiments grouped by type with troubleshooting notes
+function TroubleshootingPanel({ user }: { user: AuthUser }) {
+  const [experiments, setExperiments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedType, setSelectedType] = useState<string | null>(null);
+  const [expandedExperiment, setExpandedExperiment] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadExperiments();
+  }, []);
+
+  const loadExperiments = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/experiments`, {
+        headers: { 'x-user-id': user.id }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        // Filter to only show experiments with troubleshooting notes
+        setExperiments(data);
+      }
+    } catch (error) {
+      console.error('Failed to load experiments:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Group experiments by modality/type
+  const experimentsByType = useMemo(() => {
+    const grouped: Record<string, any[]> = {};
+    for (const exp of experiments) {
+      const type = exp.modality === 'other' && exp.customModality 
+        ? exp.customModality 
+        : exp.modality;
+      const displayType = exp.modality === 'other' && exp.customModality 
+        ? `Other: ${exp.customModality}` 
+        : formatModality(exp.modality);
+      
+      if (!grouped[type]) {
+        grouped[type] = [];
+      }
+      grouped[type].push({ ...exp, displayType });
+    }
+    return grouped;
+  }, [experiments]);
+
+  // Get experiments with troubleshooting notes
+  const experimentsWithNotes = useMemo(() => {
+    return experiments.filter(e => e.troubleshootingNotes && e.troubleshootingNotes.trim());
+  }, [experiments]);
+
+  // Get types that have experiments with troubleshooting notes
+  const typesWithNotes = useMemo(() => {
+    const types = new Set<string>();
+    for (const exp of experimentsWithNotes) {
+      const type = exp.modality === 'other' && exp.customModality 
+        ? exp.customModality 
+        : exp.modality;
+      types.add(type);
+    }
+    return Array.from(types);
+  }, [experimentsWithNotes]);
+
+  const selectedExperiments = selectedType 
+    ? experimentsByType[selectedType]?.filter(e => e.troubleshootingNotes && e.troubleshootingNotes.trim()) || []
+    : experimentsWithNotes;
+
+  return (
+    <div style={styles.panel}>
+      <div style={styles.header}>
+        <div>
+          <h2 style={styles.pageTitle}>🔧 Troubleshooting Documentation</h2>
+          <p style={styles.pageSubtitle}>Browse troubleshooting notes organized by experiment type</p>
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={styles.emptyState}><p>Loading...</p></div>
+      ) : experimentsWithNotes.length === 0 ? (
+        <div style={styles.emptyState}>
+          <p>No troubleshooting notes found.</p>
+          <p style={{ fontSize: '14px', color: '#64748b', marginTop: '8px' }}>
+            Add troubleshooting notes to your experiments to document issues and solutions.
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: '24px' }}>
+          {/* Left sidebar - Experiment types */}
+          <div style={{ 
+            width: '250px', 
+            flexShrink: 0, 
+            background: '#f8fafc', 
+            borderRadius: '12px', 
+            padding: '16px',
+            height: 'fit-content'
+          }}>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: '14px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Experiment Types
+            </h3>
+            <button
+              onClick={() => setSelectedType(null)}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                textAlign: 'left',
+                background: selectedType === null ? '#3b82f6' : 'transparent',
+                color: selectedType === null ? 'white' : '#1e293b',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                marginBottom: '4px',
+                fontWeight: selectedType === null ? 600 : 400,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}
+            >
+              <span>All Types</span>
+              <span style={{ 
+                background: selectedType === null ? 'rgba(255,255,255,0.2)' : '#e2e8f0',
+                padding: '2px 8px',
+                borderRadius: '12px',
+                fontSize: '12px'
+              }}>
+                {experimentsWithNotes.length}
+              </span>
+            </button>
+            
+            {typesWithNotes.map(type => {
+              const count = experimentsByType[type]?.filter(e => e.troubleshootingNotes && e.troubleshootingNotes.trim()).length || 0;
+              const displayName = MODALITIES.includes(type as any) ? formatModality(type) : `Other: ${type}`;
+              return (
+                <button
+                  key={type}
+                  onClick={() => setSelectedType(type)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    textAlign: 'left',
+                    background: selectedType === type ? '#3b82f6' : 'transparent',
+                    color: selectedType === type ? 'white' : '#1e293b',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    marginBottom: '4px',
+                    fontWeight: selectedType === type ? 600 : 400,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {displayName}
+                  </span>
+                  <span style={{ 
+                    background: selectedType === type ? 'rgba(255,255,255,0.2)' : '#e2e8f0',
+                    padding: '2px 8px',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    flexShrink: 0
+                  }}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Main content - Troubleshooting notes list */}
+          <div style={{ flex: 1 }}>
+            <div style={{ marginBottom: '16px', color: '#64748b', fontSize: '14px' }}>
+              Showing {selectedExperiments.length} experiment{selectedExperiments.length !== 1 ? 's' : ''} with troubleshooting notes
+              {selectedType && ` in ${MODALITIES.includes(selectedType as any) ? formatModality(selectedType) : selectedType}`}
+            </div>
+            
+            {selectedExperiments.map((exp: any) => (
+              <div 
+                key={exp.id} 
+                style={{ 
+                  background: 'white', 
+                  borderRadius: '12px', 
+                  border: '1px solid #e2e8f0',
+                  marginBottom: '16px',
+                  overflow: 'hidden'
+                }}
+              >
+                <div 
+                  onClick={() => setExpandedExperiment(expandedExperiment === exp.id ? null : exp.id)}
+                  style={{ 
+                    padding: '16px', 
+                    cursor: 'pointer',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    background: expandedExperiment === exp.id ? '#f0f9ff' : 'white',
+                    transition: 'background 0.2s'
+                  }}
+                >
+                  <div>
+                    <h4 style={{ margin: '0 0 4px 0', color: '#1e293b' }}>{exp.title}</h4>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <span style={{ 
+                        ...styles.badge, 
+                        background: '#dbeafe', 
+                        color: '#1e40af',
+                        fontSize: '11px'
+                      }}>
+                        {exp.displayType || formatModality(exp.modality)}
+                      </span>
+                      {exp.project && (
+                        <span style={{ fontSize: '13px', color: '#64748b' }}>
+                          {exp.project}
+                        </span>
+                      )}
+                      <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+                        {new Date(exp.updatedAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                  </div>
+                  <span style={{ fontSize: '20px', color: '#94a3b8' }}>
+                    {expandedExperiment === exp.id ? '−' : '+'}
+                  </span>
+                </div>
+                
+                {expandedExperiment === exp.id && (
+                  <div style={{ 
+                    padding: '16px', 
+                    borderTop: '1px solid #e2e8f0',
+                    background: '#fffbeb'
+                  }}>
+                    <h5 style={{ margin: '0 0 8px 0', color: '#92400e', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      🔧 Troubleshooting Notes
+                    </h5>
+                    <pre style={{ 
+                      margin: 0, 
+                      whiteSpace: 'pre-wrap', 
+                      fontFamily: 'inherit',
+                      fontSize: '14px',
+                      lineHeight: '1.6',
+                      color: '#78350f'
+                    }}>
+                      {exp.troubleshootingNotes}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AnalyticsPanel({ user }: { user: AuthUser }) {
   const [metrics, setMetrics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -2953,7 +3237,8 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function formatModality(modality: Modality | string) {
-  return modality.replace(/_/g, ' ');
+  if (modality === 'other') return 'Other';
+  return modality.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
 // Admin Panel - For viewing all lab members' notebooks
@@ -3047,6 +3332,34 @@ function AdminPanel({ user }: { user: AuthUser }) {
       }
     } catch (error) {
       setActionMessage({ type: 'error', text: 'Failed to update status' });
+    }
+  };
+
+  const resetUserPassword = async (userId: string, userName: string) => {
+    if (!window.confirm(`Are you sure you want to reset the password for ${userName}?\n\nA temporary password will be generated that must be securely communicated to the user.`)) {
+      return;
+    }
+    
+    setActionMessage(null);
+    try {
+      const res = await fetch(`${API_BASE}/admin/users/${userId}/reset-password`, {
+        method: 'POST',
+        headers: { 'x-user-id': user.id, 'Content-Type': 'application/json' }
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        // Show the temporary password in a clear way
+        setActionMessage({ 
+          type: 'success', 
+          text: `Password reset for ${userName}. Temporary password: ${data.temporaryPassword} — Please securely communicate this to the user.`
+        });
+      } else {
+        const err = await res.json();
+        setActionMessage({ type: 'error', text: err.error || 'Failed to reset password' });
+      }
+    } catch (error) {
+      setActionMessage({ type: 'error', text: 'Failed to reset password' });
     }
   };
 
@@ -3181,6 +3494,15 @@ function AdminPanel({ user }: { user: AuthUser }) {
                       >
                         📂
                       </button>
+                      {u.id !== user.id && (user.role === 'admin' || (user.role === 'manager' && u.role !== 'admin')) && (
+                        <button 
+                          style={{ ...styles.iconButton, marginLeft: '4px' }}
+                          onClick={() => resetUserPassword(u.id, u.name)}
+                          title="Reset Password"
+                        >
+                          🔑
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
