@@ -49,13 +49,9 @@ if not errorlevel 1 (
 if defined PG_HOST_PORT goto :done
 
 REM Pick a free host port to publish 5432/tcp (5432-5440)
-for /l %%P in (5432,1,5440) do (
-    netstat -ano -p tcp | findstr /R /C:":%%P .*LISTENING" >nul 2>nul
-    if errorlevel 1 (
-        set "PG_HOST_PORT=%%P"
-        goto :done
-    )
-)
+for /l %%P in (5432,1,5440) do call :try_port %%P
+
+if defined PG_HOST_PORT goto :done
 
 echo [ERROR] Could not find a free TCP port in range 5432-5440 for Docker PostgreSQL.
 endlocal & exit /b 1
@@ -68,3 +64,10 @@ if not "!PG_HOST_PORT!"=="5432" (
 )
 
 endlocal & set "PG_HOST_PORT=%PG_HOST_PORT%" & exit /b 0
+
+:try_port
+if defined PG_HOST_PORT exit /b 0
+set "PORT=%~1"
+netstat -ano -p tcp | findstr /R /C:":%PORT% .*LISTENING" >nul 2>nul
+if errorlevel 1 set "PG_HOST_PORT=%PORT%"
+exit /b 0
