@@ -58,7 +58,7 @@ const poolService = new SamplePoolService(prisma);
 app.use(express.json({ limit: '100mb' }));
 app.set('trust proxy', 1);
 
-const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173')
+const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);

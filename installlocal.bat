@@ -49,12 +49,12 @@ if /i "%USE_DOCKER%"=="y" set "DB_MODE=docker"
 if not defined PG_HOST_PORT set "PG_HOST_PORT=5432"
 
 if /i "%DB_MODE%"=="docker" (
-    :: Ensure Docker CLI is available (Docker Desktop sometimes isn't on PATH)
+    rem Ensure Docker CLI is available (Docker Desktop sometimes isn't on PATH)
     where docker >nul 2>nul
     if errorlevel 1 (
         set "DOCKER_EXE="
 
-        :: Try common Docker Desktop install locations
+        rem Try common Docker Desktop install locations
         if exist "%ProgramFiles%\Docker\Docker\resources\bin\docker.exe" set "DOCKER_EXE=%ProgramFiles%\Docker\Docker\resources\bin\docker.exe"
         if not defined DOCKER_EXE if exist "%LocalAppData%\Programs\Docker\Docker\resources\bin\docker.exe" set "DOCKER_EXE=%LocalAppData%\Programs\Docker\Docker\resources\bin\docker.exe"
 
@@ -64,22 +64,22 @@ if /i "%DB_MODE%"=="docker" (
             echo [INFO] Docker CLI found at "!DOCKER_EXE!".
             echo [INFO] Added "!DOCKER_BIN!" to PATH for this session.
         ) else (
-            echo [ERROR] Docker CLI (docker.exe) is not installed or not in PATH.
+            echo [ERROR] Docker CLI docker.exe is not installed or not in PATH.
             echo.
             echo Option A: Install Docker Desktop from https://www.docker.com/products/docker-desktop
-            echo Option B: Re-run this installer and choose local PostgreSQL (no Docker)
+            echo Option B: Re-run this installer and choose local PostgreSQL ^(no Docker^)
             pause
             exit /b 1
         )
     )
 
-    :: Check if Docker is running
+    rem Check if Docker is running
     docker info >nul 2>nul
     if errorlevel 1 (
         echo [ERROR] Docker is not running.
         echo Please start Docker Desktop and wait for it to fully initialize.
         echo.
-        echo Or re-run this installer and choose local PostgreSQL (no Docker).
+        echo Or re-run this installer and choose local PostgreSQL ^(no Docker^).
         pause
         exit /b 1
     )
@@ -87,16 +87,16 @@ if /i "%DB_MODE%"=="docker" (
     echo [OK] Docker found and running.
     echo.
 
-    :: Choose a host port for the Postgres container (avoid conflict with local PostgreSQL on 5432)
+    rem Choose a host port for the Postgres container (avoid conflict with local PostgreSQL on 5432)
     set "PG_HOST_PORT="
 
-    :: If the container already exists, reuse its published port
+    rem If the container already exists, reuse its published port
     docker container inspect enotebook-postgres >nul 2>nul
     if not errorlevel 1 (
         for /f "tokens=2 delims=:" %%p in ('docker port enotebook-postgres 5432/tcp 2^>nul ^| findstr /r /c:"0\.0\.0\.0:"') do set "PG_HOST_PORT=%%p"
     )
 
-    :: Otherwise, pick a free host port to publish 5432/tcp
+    rem Otherwise, pick a free host port to publish 5432/tcp
     if not defined PG_HOST_PORT (
         for /f "usebackq delims=" %%p in (`powershell -NoProfile -Command "$ports=5432..5440; foreach($p in $ports){ if(-not (Get-NetTCPConnection -State Listen -LocalPort $p -ErrorAction SilentlyContinue)){ $p; break } }"`) do set "PG_HOST_PORT=%%p"
     )
@@ -293,6 +293,7 @@ if /i "%DB_MODE%"=="docker" (
 )
 echo PORT=4000>> .env
 echo NODE_ENV=development>> .env
+echo CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173">> .env
 echo SYNC_SERVER_URL=>> .env
 
 :: Create server data directory
@@ -311,14 +312,20 @@ echo [INFO] Ensuring Prisma schema uses PostgreSQL...
 powershell -Command "(Get-Content prisma\schema.prisma) -replace 'provider = \"sqlite\"', 'provider = \"postgresql\"' | Set-Content prisma\schema.prisma"
 
 echo [INFO] Running database migrations...
-call npx prisma db push --accept-data-loss
+call npx.cmd prisma db push --accept-data-loss
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] Failed to push database schema.
     pause
     exit /b 1
 )
 
-call npx prisma generate
+call npx.cmd prisma generate
+if %ERRORLEVEL% neq 0 (
+    echo [WARNING] Prisma client generation failed.
+    echo [TIP] Close any running ELN server processes and re-run:
+    echo       cd apps\server
+    echo       npx.cmd prisma generate
+)
 echo [OK] PostgreSQL database configured.
 cd ..\..
 echo.
@@ -381,7 +388,7 @@ echo [STEP 8/8] Creating default admin user...
 cd apps\server
 
 :: Use Node.js directly to create the user
-node -e "const crypto=require('crypto'); const { PrismaClient }=require('@prisma/client'); const prisma=new PrismaClient(); async function main(){ try{ const existing=await prisma.user.findFirst(); if(!existing){ const salt=crypto.randomBytes(16).toString('hex'); const hash=crypto.pbkdf2Sync('changeme', salt, 10000, 64, 'sha512').toString('hex'); await prisma.user.create({ data:{ name:'Local Admin', email:'admin@local', role:'admin', passwordHash: salt + ':' + hash, active:true } }); console.log('[OK] Default admin user created.'); } else { console.log('[INFO] Users already exist, skipping.'); } } catch(e){ console.log('[WARNING] ' + e.message); } finally { await prisma.$disconnect(); } } main();"
+node -e "const { PrismaClient }=require('@prisma/client'); const bcrypt=require('bcrypt'); const prisma=new PrismaClient(); async function main(){ try{ const existing=await prisma.user.findFirst(); if(existing==null){ const passwordHash=await bcrypt.hash('changeme', 12); await prisma.user.create({ data:{ name:'Local Admin', email:'admin@local', role:'admin', passwordHash, active:true } }); console.log('[OK] Default admin user created.'); } else { console.log('[INFO] Users already exist, skipping.'); } } catch(e){ console.log('[WARNING] ' + e.message); } finally { await prisma.$disconnect(); } } main();"
 
 cd ..\..
 echo.
