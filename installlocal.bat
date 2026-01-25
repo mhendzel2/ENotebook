@@ -9,7 +9,7 @@ echo.
 
 :: Check for Node.js
 where node >nul 2>nul
-if %ERRORLEVEL% neq 0 (
+if errorlevel 1 (
     echo [ERROR] Node.js is not installed or not in PATH.
     echo Please install Node.js from https://nodejs.org/
     pause
@@ -18,104 +18,46 @@ if %ERRORLEVEL% neq 0 (
 
 :: Display Node version
 for /f "tokens=*" %%i in ('node -v') do set NODE_VERSION=%%i
-echo [OK] Node.js found: %NODE_VERSION%
+echo [OK] Node.js found: !NODE_VERSION!
 
 :: Check for npm
 where npm >nul 2>nul
-if %ERRORLEVEL% neq 0 (
+if errorlevel 1 (
     echo [ERROR] npm is not installed or not in PATH.
     pause
     exit /b 1
 )
 
 for /f "tokens=*" %%i in ('npm -v') do set NPM_VERSION=%%i
-echo [OK] npm found: %NPM_VERSION%
+echo [OK] npm found: !NPM_VERSION!
+
+:: Set installation directory early (used by helper scripts)
+set "INSTALL_DIR=%~dp0"
+cd /d "%INSTALL_DIR%"
 
 :: Choose database mode (Docker vs local PostgreSQL)
 set "DB_MODE=docker"
 where docker >nul 2>nul
-if %ERRORLEVEL% neq 0 set "DB_MODE=local"
+if errorlevel 1 set "DB_MODE=local"
 
 set "USE_DOCKER=y"
-if /i "%DB_MODE%"=="local" set "USE_DOCKER=n"
+if /i "!DB_MODE!"=="local" set "USE_DOCKER=n"
 
-set "USE_DOCKER_DEFAULT=%USE_DOCKER%"
-set /p USE_DOCKER="Use Docker for PostgreSQL? (y/n) [%USE_DOCKER_DEFAULT%]: "
-if "%USE_DOCKER%"=="" set "USE_DOCKER=%USE_DOCKER_DEFAULT%"
-if /i "%USE_DOCKER%"=="n" set "DB_MODE=local"
-if /i "%USE_DOCKER%"=="y" set "DB_MODE=docker"
+set "USE_DOCKER_DEFAULT=!USE_DOCKER!"
+set /p "USE_DOCKER=Use Docker for PostgreSQL? (y/n) [!USE_DOCKER_DEFAULT!]: "
+if "!USE_DOCKER!"=="" set "USE_DOCKER=!USE_DOCKER_DEFAULT!"
+if /i "!USE_DOCKER!"=="n" set "DB_MODE=local"
+if /i "!USE_DOCKER!"=="y" set "DB_MODE=docker"
+echo DBG: selected DB_MODE=!DB_MODE!
 
 :: Default port variable used in generated scripts/messages
 if not defined PG_HOST_PORT set "PG_HOST_PORT=5432"
 
-if /i "%DB_MODE%"=="docker" (
-    rem Ensure Docker CLI is available (Docker Desktop sometimes isn't on PATH)
-    where docker >nul 2>nul
-    if errorlevel 1 (
-        set "DOCKER_EXE="
-
-        rem Try common Docker Desktop install locations
-        if exist "%ProgramFiles%\Docker\Docker\resources\bin\docker.exe" set "DOCKER_EXE=%ProgramFiles%\Docker\Docker\resources\bin\docker.exe"
-        if not defined DOCKER_EXE if exist "%LocalAppData%\Programs\Docker\Docker\resources\bin\docker.exe" set "DOCKER_EXE=%LocalAppData%\Programs\Docker\Docker\resources\bin\docker.exe"
-
-        if defined DOCKER_EXE (
-            for %%d in ("!DOCKER_EXE!") do set "DOCKER_BIN=%%~dpd"
-            set "PATH=!DOCKER_BIN!;%PATH%"
-            echo [INFO] Docker CLI found at "!DOCKER_EXE!".
-            echo [INFO] Added "!DOCKER_BIN!" to PATH for this session.
-        ) else (
-            echo [ERROR] Docker CLI docker.exe is not installed or not in PATH.
-            echo.
-            echo Option A: Install Docker Desktop from https://www.docker.com/products/docker-desktop
-            echo Option B: Re-run this installer and choose local PostgreSQL ^(no Docker^)
-            pause
-            exit /b 1
-        )
-    )
-
-    rem Check if Docker is running
-    docker info >nul 2>nul
-    if errorlevel 1 (
-        echo [ERROR] Docker is not running.
-        echo Please start Docker Desktop and wait for it to fully initialize.
-        echo.
-        echo Or re-run this installer and choose local PostgreSQL ^(no Docker^).
-        pause
-        exit /b 1
-    )
-
-    echo [OK] Docker found and running.
-    echo.
-
-    rem Choose a host port for the Postgres container (avoid conflict with local PostgreSQL on 5432)
-    set "PG_HOST_PORT="
-
-    rem If the container already exists, reuse its published port
-    docker container inspect enotebook-postgres >nul 2>nul
-    if not errorlevel 1 (
-        for /f "tokens=2 delims=:" %%p in ('docker port enotebook-postgres 5432/tcp 2^>nul ^| findstr /r /c:"0\.0\.0\.0:"') do set "PG_HOST_PORT=%%p"
-    )
-
-    rem Otherwise, pick a free host port to publish 5432/tcp
-    if not defined PG_HOST_PORT (
-        for /f "usebackq delims=" %%p in (`powershell -NoProfile -Command "$ports=5432..5440; foreach($p in $ports){ if(-not (Get-NetTCPConnection -State Listen -LocalPort $p -ErrorAction SilentlyContinue)){ $p; break } }"`) do set "PG_HOST_PORT=%%p"
-    )
-
-    if not defined PG_HOST_PORT (
-        echo [ERROR] Could not find a free TCP port in range 5432-5440 for Docker PostgreSQL.
-        pause
-        exit /b 1
-    )
-    if not "!PG_HOST_PORT!"=="5432" (
-        echo [WARNING] Host port 5432 is in use.
-        echo [INFO] Docker PostgreSQL will use localhost:!PG_HOST_PORT!.
-        echo.
-    )
+:: Run Docker preflight check if using Docker mode
+if /i "!DB_MODE!"=="docker" (
+    call "%INSTALL_DIR%scripts\docker-preflight.bat"
+    if errorlevel 1 exit /b 1
 )
-
-:: Set installation directory
-set "INSTALL_DIR=%~dp0"
-cd /d "%INSTALL_DIR%"
 
 echo [INFO] Installation directory: %INSTALL_DIR%
 echo.
@@ -132,10 +74,10 @@ echo [OK] Local data directories created.
 echo.
 
 :: Setup PostgreSQL via Docker
-if /i "%DB_MODE%"=="docker" (
+if /i "!DB_MODE!"=="docker" (
     echo [STEP 2/8] Setting up PostgreSQL database via Docker...
 
-    :: Check if container already exists
+    REM Check if container already exists
     docker container inspect enotebook-postgres >nul 2>nul
     set "RECREATE_PG="
     if not errorlevel 1 (
@@ -151,7 +93,7 @@ if /i "%DB_MODE%"=="docker" (
                 rmdir /s /q "%INSTALL_DIR%data\postgres"
             )
         ) else (
-            :: Check if it's running
+            REM Check if it is running
             set "PG_CONTAINER_RUNNING="
             for /f "usebackq delims=" %%r in (`docker inspect -f "{{.State.Running}}" enotebook-postgres 2^>nul`) do set "PG_CONTAINER_RUNNING=%%r"
             if /i not "!PG_CONTAINER_RUNNING!"=="true" (
@@ -161,7 +103,7 @@ if /i "%DB_MODE%"=="docker" (
         )
     )
 
-    :: Create container if missing (or recreated)
+    REM Create container if missing or recreated
     docker container inspect enotebook-postgres >nul 2>nul
     if errorlevel 1 (
         echo [INFO] Creating new PostgreSQL container...
@@ -191,7 +133,7 @@ if /i "%DB_MODE%"=="docker" (
         )
     )
 
-    :: Verify PostgreSQL is running
+    REM Verify PostgreSQL is running
     set "PG_CONTAINER_RUNNING="
     for /f "usebackq delims=" %%r in (`docker inspect -f "{{.State.Running}}" enotebook-postgres 2^>nul`) do set "PG_CONTAINER_RUNNING=%%r"
     if /i not "!PG_CONTAINER_RUNNING!"=="true" (
@@ -231,14 +173,14 @@ if /i "%DB_MODE%"=="docker" (
         exit /b 1
     )
 
-    :: URL-encode username/password for Prisma connection URL
+    REM URL-encode username/password for Prisma connection URL
     set "RAW_DB_USER=!DB_USER!"
     set "RAW_DB_PASSWORD=!DB_PASSWORD!"
     for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "[uri]::EscapeDataString($env:RAW_DB_USER)"`) do set "DB_USER_ESC=%%i"
     for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "[uri]::EscapeDataString($env:RAW_DB_PASSWORD)"`) do set "DB_PASSWORD_ESC=%%i"
     set "DATABASE_URL=postgresql://!DB_USER_ESC!:!DB_PASSWORD_ESC!@!DB_HOST!:!DB_PORT!/!DB_NAME!?schema=public"
 
-    :: Quick TCP check (does not validate credentials)
+    REM Quick TCP check - does not validate credentials
     powershell -NoProfile -Command "$r=Test-NetConnection -ComputerName $env:DB_HOST -Port [int]$env:DB_PORT; if($r.TcpTestSucceeded){exit 0}else{exit 1}" >nul 2>nul
     if errorlevel 1 (
         echo [WARNING] Could not connect to !DB_HOST!:!DB_PORT!.
@@ -259,7 +201,7 @@ echo.
 :: Install root dependencies
 echo [STEP 3/8] Installing root dependencies...
 call npm install
-if %ERRORLEVEL% neq 0 (
+if errorlevel 1 (
     echo [ERROR] Failed to install root dependencies.
     pause
     exit /b 1
@@ -271,7 +213,7 @@ echo.
 echo [STEP 4/8] Building shared package...
 cd packages\shared
 call npm run build
-if %ERRORLEVEL% neq 0 (
+if errorlevel 1 (
     echo [ERROR] Failed to build shared package.
     pause
     exit /b 1
@@ -286,7 +228,7 @@ cd apps\server
 
 :: Create .env file for PostgreSQL database
 echo DB_PROVIDER="postgresql"> .env
-if /i "%DB_MODE%"=="docker" (
+if /i "!DB_MODE!"=="docker" (
     echo DATABASE_URL="postgresql://enotebook:enotebook_secure_pwd@localhost:!PG_HOST_PORT!/enotebook?schema=public">> .env
 ) else (
     echo DATABASE_URL="!DATABASE_URL!">> .env
@@ -301,7 +243,7 @@ if not exist "data" mkdir "data"
 
 :: Install dependencies
 call npm install
-if %ERRORLEVEL% neq 0 (
+if errorlevel 1 (
     echo [ERROR] Failed to install server dependencies.
     pause
     exit /b 1
@@ -312,19 +254,19 @@ echo [INFO] Ensuring Prisma schema uses PostgreSQL...
 powershell -Command "(Get-Content prisma\schema.prisma) -replace 'provider = \"sqlite\"', 'provider = \"postgresql\"' | Set-Content prisma\schema.prisma"
 
 echo [INFO] Running database migrations...
-call npx.cmd prisma db push --accept-data-loss
-if %ERRORLEVEL% neq 0 (
+call npx prisma db push --accept-data-loss
+if errorlevel 1 (
     echo [ERROR] Failed to push database schema.
     pause
     exit /b 1
 )
 
-call npx.cmd prisma generate
-if %ERRORLEVEL% neq 0 (
+call npx prisma generate
+if errorlevel 1 (
     echo [WARNING] Prisma client generation failed.
     echo [TIP] Close any running ELN server processes and re-run:
     echo       cd apps\server
-    echo       npx.cmd prisma generate
+    echo       npx prisma generate
 )
 echo [OK] PostgreSQL database configured.
 cd ..\..
@@ -334,7 +276,7 @@ echo.
 echo [STEP 6/8] Installing client dependencies...
 cd apps\client
 call npm install
-if %ERRORLEVEL% neq 0 (
+if errorlevel 1 (
     echo [ERROR] Failed to install client dependencies.
     pause
     exit /b 1
@@ -345,17 +287,15 @@ echo.
 
 :: Create local configuration file
 echo [STEP 7/8] Creating local configuration...
+set "CFG_PORT=5432"
+if /i "!DB_MODE!"=="docker" set "CFG_PORT=!PG_HOST_PORT!"
 (
 echo {
 echo   "mode": "local",
 echo   "database": {
 echo     "type": "postgresql",
 echo     "host": "localhost",
-if /i "%DB_MODE%"=="docker" (
-echo     "port": !PG_HOST_PORT!,
-) else (
-echo     "port": 5432,
-)
+echo     "port": !CFG_PORT!,
 echo     "name": "enotebook",
 echo     "containerName": "enotebook-postgres"
 echo   },
@@ -618,7 +558,7 @@ echo ============================================
 echo.
 echo Database: PostgreSQL running in Docker
 echo   - Container: enotebook-postgres
-if /i "%DB_MODE%"=="docker" (
+if /i "!DB_MODE!"=="docker" (
 echo   - Port: !PG_HOST_PORT!
 ) else (
 echo   - Host/Port: !DB_HOST!:!DB_PORT!
