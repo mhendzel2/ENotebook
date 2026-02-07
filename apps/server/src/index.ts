@@ -33,6 +33,7 @@ import { createNotificationsRoutes } from './routes/notifications.js';
 import { createAuditLogRoutes } from './routes/auditLog.js';
 import { createInventoryRoutes } from './routes/inventory.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
+import { ensureDefaultAdminUser } from './bootstrap/defaultAdmin.js';
 
 const prisma = new PrismaClient();
 
@@ -168,11 +169,21 @@ app.use(createInventoryRoutes(prisma));
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-const port = process.env.PORT || 4000;
-server.listen(port, () => {
+async function start() {
+  const port = process.env.PORT || 4000;
+  await ensureDefaultAdminUser(prisma);
+
+  server.listen(port, () => {
+    // eslint-disable-next-line no-console
+    console.log(`ELN server listening on http://localhost:${port}`);
+    console.log('WebSocket server ready for real-time collaboration');
+  });
+}
+
+start().catch((error) => {
   // eslint-disable-next-line no-console
-  console.log(`ELN server listening on http://localhost:${port}`);
-  console.log(`WebSocket server ready for real-time collaboration`);
+  console.error('Failed to start ELN server:', error);
+  process.exit(1);
 });
 
 // Export collaboration manager for use in routes

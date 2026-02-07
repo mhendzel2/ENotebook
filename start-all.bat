@@ -38,7 +38,7 @@ echo.
 
 echo Starting server and client...
 echo.
-start "ELN Server" cmd /k "set DB_PROVIDER=postgresql ^& set DATABASE_URL=postgresql://enotebook:enotebook_secure_pwd@localhost:%PG_HOST_PORT%/enotebook?schema=public ^& cd /d %ROOT%apps\server ^&^& npm run dev"
+start "ELN Server" cmd /k "cd /d %ROOT%apps\server ^&^& npm run dev"
 timeout /t 3 /nobreak >nul
 start "ELN Client" cmd /k "cd /d %ROOT%apps\client ^&^& npm run dev"
 echo.

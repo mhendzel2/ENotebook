@@ -1,10 +1,10 @@
 # Electronic Lab Notebook (ELN)
 
-Offline-first desktop ELN with local SQLite storage (sqlcipher optional) and sync to a central PostgreSQL server when network is available.
+Offline-first desktop ELN with PostgreSQL (Docker-first local setup) and sync support for central deployments.
 
 ## Structure
 - `apps/client` — Electron + React desktop app (renderer via Vite).
-- `apps/server` — Express/Nest-ready server with Prisma schema for PostgreSQL (or SQLite for dev).
+- `apps/server` — Express server with Prisma schema for PostgreSQL.
 - `packages/shared` — Shared TypeScript types and constants.
 - `docs` — Architecture and schema references.
 
@@ -15,8 +15,14 @@ Offline-first desktop ELN with local SQLite storage (sqlcipher optional) and syn
    - Dev renderer: `npm --workspace apps/client run dev:renderer`.
    - Dev main (Electron): `npm --workspace apps/client run dev:main` (ensure `VITE_DEV_SERVER_URL=http://localhost:5173`).
 4. Server:
-   - Copy `apps/server/.env.example` to `.env` and set `DB_PROVIDER`/`DATABASE_URL`.
+   - Copy `apps/server/.env.example` to `.env` and set `DATABASE_URL`.
    - Dev: `npm --workspace apps/server run dev`.
+
+## Local default admin
+- On first run (empty DB), the server seeds a default admin account unless disabled:
+  - Username: `Admin`
+  - Password: `D_Admin`
+- Configure via `SEED_DEFAULT_ADMIN`, `DEFAULT_ADMIN_USERNAME`, `DEFAULT_ADMIN_PASSWORD`, `DEFAULT_ADMIN_EMAIL`.
 
 ## Notes
 - Prisma schema lives in `apps/server/prisma/schema.prisma`; run `npx prisma migrate dev` after configuring env.

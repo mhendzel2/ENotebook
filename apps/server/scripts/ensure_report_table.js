@@ -8,7 +8,7 @@
 import { Client } from 'pg';
 
 const connectionString =
-  process.env.DATABASE_URL || 'postgresql://postgres:justdoit@localhost:5432/eln';
+  process.env.DATABASE_URL || 'postgresql://enotebook:enotebook_secure_pwd@localhost:5432/enotebook?schema=public';
 
 async function main() {
   const client = new Client({ connectionString });

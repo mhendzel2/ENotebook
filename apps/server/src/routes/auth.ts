@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type User as PrismaUser } from '@prisma/client';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
@@ -16,8 +16,12 @@ import {
 } from '../middleware/sessionAuth.js';
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  identifier: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+  username: z.string().min(1).optional(),
   password: z.string().min(1),
+}).refine((data) => Boolean(data.identifier || data.email || data.username), {
+  message: 'identifier, email, or username is required',
 });
 
 const registerSchema = z.object({
@@ -90,6 +94,26 @@ const passwordHintLimiter = rateLimit({
 
 export function createAuthRoutes(prisma: PrismaClient, auditService?: AuditTrailService) {
   const router = Router();
+
+  async function findUserByLoginIdentifier(identifier: string): Promise<PrismaUser | { ambiguous: true } | null> {
+    const input = identifier.trim();
+    if (input.length === 0) return null;
+
+    const byEmail = await prisma.user.findFirst({
+      where: { email: { equals: input, mode: 'insensitive' } },
+    });
+    if (byEmail) return byEmail;
+
+    const byName = await prisma.user.findMany({
+      where: { name: { equals: input, mode: 'insensitive' } },
+      take: 2,
+    });
+
+    if (byName.length > 1) {
+      return { ambiguous: true as const };
+    }
+    return byName[0] || null;
+  }
 
   /**
    * POST /api/auth/register
@@ -212,11 +236,15 @@ export function createAuthRoutes(prisma: PrismaClient, auditService?: AuditTrail
       return res.status(400).json({ error: parse.error.flatten() });
     }
 
-    const { email, password } = parse.data;
-
+    const { password } = parse.data;
+    const identifier = (parse.data.identifier || parse.data.email || parse.data.username || '').trim();
     try {
-      // Find user by email
-      const user = await prisma.user.findUnique({ where: { email } });
+      // Find user by email (preferred) or username.
+      const found = await findUserByLoginIdentifier(identifier);
+      if (found && 'ambiguous' in found) {
+        return res.status(409).json({ error: 'Multiple accounts match this username. Please sign in with email.' });
+      }
+      const user = found;
       if (!user) {
         return res.status(401).json({ error: 'Invalid email or password' });
       }

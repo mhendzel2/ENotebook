@@ -22,9 +22,9 @@ echo    Electronic Lab Notebook - Local Uninstall
 echo ============================================
 echo.
 echo This will:
-echo - Stop and remove Docker container: enotebook-postgres
+echo - Stop and remove Docker container: enotebook-postgres (or enotebook-db)
 if "%DELETE_DATA%"=="1" (
-  echo - Delete local data/config: data\postgres, apps\server\.env, apps\server\data\local.db, config.local.json
+  echo - Delete local data/config: data\postgres, apps\server\.env, config.local.json
 ) else (
   echo - Keep local data/config (use --delete-data to remove)
 )
@@ -45,14 +45,14 @@ if "%ASSUME_YES%"=="0" (
 :: Docker cleanup (safe if Docker isn't installed)
 where docker >nul 2>nul
 if %ERRORLEVEL% equ 0 (
-  docker container inspect enotebook-postgres >nul 2>nul
-  if %ERRORLEVEL% equ 0 (
-    echo [INFO] Stopping container enotebook-postgres...
-    docker stop enotebook-postgres >nul 2>nul
-    echo [INFO] Removing container enotebook-postgres...
-    docker rm enotebook-postgres >nul 2>nul
-  ) else (
-    echo [INFO] Docker container enotebook-postgres not found.
+  for %%C in (enotebook-postgres enotebook-db) do (
+    docker container inspect %%C >nul 2>nul
+    if !ERRORLEVEL! equ 0 (
+      echo [INFO] Stopping container %%C...
+      docker stop %%C >nul 2>nul
+      echo [INFO] Removing container %%C...
+      docker rm %%C >nul 2>nul
+    )
   )
 ) else (
   echo [INFO] Docker CLI not found; skipping container removal.
@@ -66,10 +66,6 @@ if "%DELETE_DATA%"=="1" (
   if exist "%ROOT%apps\server\.env" (
     echo [INFO] Deleting %ROOT%apps\server\.env
     del /f /q "%ROOT%apps\server\.env" >nul 2>nul
-  )
-  if exist "%ROOT%apps\server\data\local.db" (
-    echo [INFO] Deleting %ROOT%apps\server\data\local.db
-    del /f /q "%ROOT%apps\server\data\local.db" >nul 2>nul
   )
   if exist "%ROOT%config.local.json" (
     echo [INFO] Deleting %ROOT%config.local.json

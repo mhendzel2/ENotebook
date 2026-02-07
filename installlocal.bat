@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 
 echo ============================================
 echo    Electronic Lab Notebook - Local Install
-echo    (PostgreSQL: Docker or Local)
+echo    (PostgreSQL in Docker)
 echo ============================================
 echo.
 
@@ -35,20 +35,16 @@ echo [OK] npm found: !NPM_VERSION!
 set "INSTALL_DIR=%~dp0"
 cd /d "%INSTALL_DIR%"
 
-:: Choose database mode (Docker vs local PostgreSQL)
+:: Docker PostgreSQL only (legacy local PostgreSQL flow removed)
 set "DB_MODE=docker"
 where docker >nul 2>nul
-if errorlevel 1 set "DB_MODE=local"
-
-set "USE_DOCKER=y"
-if /i "!DB_MODE!"=="local" set "USE_DOCKER=n"
-
-set "USE_DOCKER_DEFAULT=!USE_DOCKER!"
-set /p "USE_DOCKER=Use Docker for PostgreSQL? (y/n) [!USE_DOCKER_DEFAULT!]: "
-if "!USE_DOCKER!"=="" set "USE_DOCKER=!USE_DOCKER_DEFAULT!"
-if /i "!USE_DOCKER!"=="n" set "DB_MODE=local"
-if /i "!USE_DOCKER!"=="y" set "DB_MODE=docker"
-echo DBG: selected DB_MODE=!DB_MODE!
+if errorlevel 1 (
+    echo [ERROR] Docker is required for local install.
+    echo Install Docker Desktop and re-run installlocal.bat.
+    pause
+    exit /b 1
+)
+echo [INFO] Database mode: Docker PostgreSQL
 
 :: Default port variable used in generated scripts/messages
 if not defined PG_HOST_PORT set "PG_HOST_PORT=5432"
@@ -143,57 +139,9 @@ if /i "!DB_MODE!"=="docker" (
     )
     echo [OK] PostgreSQL is running on localhost:!PG_HOST_PORT!
 ) else (
-    echo [STEP 2/8] Using local PostgreSQL installation...
-    echo.
-    echo Enter connection settings for your local PostgreSQL.
-    echo These will be written to apps\server\.env for Prisma.
-    echo.
-
-    set "DB_HOST=localhost"
-    set "DB_PORT=5432"
-    set "DB_NAME=enotebook"
-    set "DB_USER=enotebook"
-
-    set /p DB_HOST="PostgreSQL host [%DB_HOST%]: "
-    if "!DB_HOST!"=="" set "DB_HOST=localhost"
-
-    set /p DB_PORT="PostgreSQL port [%DB_PORT%]: "
-    if "!DB_PORT!"=="" set "DB_PORT=5432"
-
-    set /p DB_NAME="Database name [%DB_NAME%]: "
-    if "!DB_NAME!"=="" set "DB_NAME=enotebook"
-
-    set /p DB_USER="Database user [%DB_USER%]: "
-    if "!DB_USER!"=="" set "DB_USER=enotebook"
-
-    set /p DB_PASSWORD="Database password (input visible): "
-    if "!DB_PASSWORD!"=="" (
-        echo [ERROR] Database password is required.
-        pause
-        exit /b 1
-    )
-
-    REM URL-encode username/password for Prisma connection URL
-    set "RAW_DB_USER=!DB_USER!"
-    set "RAW_DB_PASSWORD=!DB_PASSWORD!"
-    for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "[uri]::EscapeDataString($env:RAW_DB_USER)"`) do set "DB_USER_ESC=%%i"
-    for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "[uri]::EscapeDataString($env:RAW_DB_PASSWORD)"`) do set "DB_PASSWORD_ESC=%%i"
-    set "DATABASE_URL=postgresql://!DB_USER_ESC!:!DB_PASSWORD_ESC!@!DB_HOST!:!DB_PORT!/!DB_NAME!?schema=public"
-
-    REM Quick TCP check - does not validate credentials
-    powershell -NoProfile -Command "$r=Test-NetConnection -ComputerName $env:DB_HOST -Port [int]$env:DB_PORT; if($r.TcpTestSucceeded){exit 0}else{exit 1}" >nul 2>nul
-    if errorlevel 1 (
-        echo [WARNING] Could not connect to !DB_HOST!:!DB_PORT!.
-        echo Please ensure PostgreSQL is running and accepting TCP connections.
-        echo.
-        set /p CONTINUE_ANYWAY="Continue anyway? (y/n) [n]: "
-        if "!CONTINUE_ANYWAY!"=="" set "CONTINUE_ANYWAY=n"
-        if /i "!CONTINUE_ANYWAY!" neq "y" (
-            exit /b 1
-        )
-    )
-
-    echo [OK] Local PostgreSQL selected.
+    echo [ERROR] Unexpected DB mode: !DB_MODE!
+    pause
+    exit /b 1
 )
 
 echo.
@@ -228,15 +176,15 @@ cd apps\server
 
 :: Create .env file for PostgreSQL database
 echo DB_PROVIDER="postgresql"> .env
-if /i "!DB_MODE!"=="docker" (
-    echo DATABASE_URL="postgresql://enotebook:enotebook_secure_pwd@localhost:!PG_HOST_PORT!/enotebook?schema=public">> .env
-) else (
-    echo DATABASE_URL="!DATABASE_URL!">> .env
-)
+echo DATABASE_URL="postgresql://enotebook:enotebook_secure_pwd@localhost:!PG_HOST_PORT!/enotebook?schema=public">> .env
 echo PORT=4000>> .env
 echo NODE_ENV=development>> .env
 echo CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173">> .env
 echo SYNC_SERVER_URL=>> .env
+echo SEED_DEFAULT_ADMIN=true>> .env
+echo DEFAULT_ADMIN_USERNAME=Admin>> .env
+echo DEFAULT_ADMIN_PASSWORD=D_Admin>> .env
+echo DEFAULT_ADMIN_EMAIL=admin@local>> .env
 
 :: Create server data directory
 if not exist "data" mkdir "data"
@@ -248,10 +196,6 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
-
-:: Ensure schema is set to PostgreSQL
-echo [INFO] Ensuring Prisma schema uses PostgreSQL...
-powershell -Command "(Get-Content prisma\schema.prisma) -replace 'provider = \"sqlite\"', 'provider = \"postgresql\"' | Set-Content prisma\schema.prisma"
 
 echo [INFO] Running database migrations...
 call npx prisma db push --accept-data-loss
@@ -328,7 +272,7 @@ echo [STEP 8/8] Creating default admin user...
 cd apps\server
 
 :: Use Node.js directly to create the user
-node -e "const { PrismaClient }=require('@prisma/client'); const bcrypt=require('bcrypt'); const prisma=new PrismaClient(); async function main(){ try{ const existing=await prisma.user.findFirst(); if(existing==null){ const passwordHash=await bcrypt.hash('changeme', 12); await prisma.user.create({ data:{ name:'Local Admin', email:'admin@local', role:'admin', passwordHash, active:true } }); console.log('[OK] Default admin user created.'); } else { console.log('[INFO] Users already exist, skipping.'); } } catch(e){ console.log('[WARNING] ' + e.message); } finally { await prisma.$disconnect(); } } main();"
+node -e "const { PrismaClient }=require('@prisma/client'); const bcrypt=require('bcrypt'); const prisma=new PrismaClient(); async function main(){ try{ const existing=await prisma.user.findFirst(); if(existing==null){ const passwordHash=await bcrypt.hash('D_Admin', 12); await prisma.user.create({ data:{ name:'Admin', email:'admin@local', role:'admin', passwordHash, active:true, passwordHint:'Default local admin account' } }); console.log('[OK] Default admin user created.'); } else { console.log('[INFO] Users already exist, skipping.'); } } catch(e){ console.log('[WARNING] ' + e.message); } finally { await prisma.$disconnect(); } } main();"
 
 cd ..\..
 echo.
@@ -572,9 +516,10 @@ echo.
 echo Database management:
 echo   - Run: manage-db.bat
 echo.
-echo Default login (for API testing):
+echo Default login (first run):
+echo   - Username: Admin
+echo   - Password: D_Admin
 echo   - Email: admin@local
-echo   - Password: changeme (change this!)
 echo.
 echo ============================================
 echo.

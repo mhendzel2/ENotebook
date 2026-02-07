@@ -29,10 +29,6 @@ if "%MODE%"=="unknown" if defined DB_PROVIDER (
     set "DB_PROVIDER=!DB_PROVIDER:"=!"
     if /i "!DB_PROVIDER!"=="postgresql" set MODE=server
 )
-if "%DB_TYPE%"=="" (
-    if exist "apps\server\prisma\dev.db" set MODE=local
-    if exist "apps\server\data\local.db" set MODE=local
-)
 
 echo Detected installation: %MODE%
 echo.

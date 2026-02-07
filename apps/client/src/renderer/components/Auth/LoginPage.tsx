@@ -25,7 +25,7 @@ const ROLE_LABELS: Record<string, { label: string; color: string; bgColor: strin
 };
 
 export function LoginPage({ onLogin, onCreateAccount, existingUser, onContinueExistingUser, onSwitchUser }: LoginPageProps) {
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [isAdminLogin, setIsAdminLogin] = useState(false);
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +43,7 @@ export function LoginPage({ onLogin, onCreateAccount, existingUser, onContinueEx
       const response = await fetch(`${API_BASE}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ identifier, password }),
       });
 
       if (!response.ok) {
@@ -71,8 +71,8 @@ export function LoginPage({ onLogin, onCreateAccount, existingUser, onContinueEx
     setError(null);
     setHint(null);
 
-    if (!email || !email.includes('@')) {
-      setError('Enter your email first to get your hint');
+    if (!identifier || !identifier.includes('@')) {
+      setError('Enter an email first to get your hint');
       return;
     }
 
@@ -81,7 +81,7 @@ export function LoginPage({ onLogin, onCreateAccount, existingUser, onContinueEx
       const response = await fetch(`${API_BASE}/api/auth/password-hint`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: identifier }),
       });
 
       if (!response.ok) {
@@ -154,13 +154,13 @@ export function LoginPage({ onLogin, onCreateAccount, existingUser, onContinueEx
           {error && <div style={styles.error}>{error}</div>}
 
           <div style={styles.field}>
-            <label style={styles.label}>Email</label>
+            <label style={styles.label}>Email or Username</label>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              type="text"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
               style={styles.input}
-              placeholder="Enter your email"
+              placeholder="Enter your email or username"
               required
               autoFocus
             />

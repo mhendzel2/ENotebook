@@ -18,9 +18,6 @@ for /f "usebackq tokens=2 delims=:" %%p in (`docker port enotebook-postgres 5432
 )
 :got_port
 
-set "DB_PROVIDER=postgresql"
-set "DATABASE_URL=postgresql://enotebook:enotebook_secure_pwd@localhost:%PG_HOST_PORT%/enotebook?schema=public"
-
 docker container inspect enotebook-postgres >nul 2>nul
 if %ERRORLEVEL% neq 0 (
 	echo [ERROR] PostgreSQL container not found: enotebook-postgres

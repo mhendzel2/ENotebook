@@ -7,7 +7,7 @@ services:
   # ============================================
   postgres:
     image: postgres:16-alpine
-    container_name: enotebook-db
+    container_name: enotebook-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-enotebook}
@@ -51,6 +51,10 @@ services:
       # Session/JWT secrets (generate secure values for production!)
       SESSION_SECRET: ${SESSION_SECRET:-change-this-to-a-secure-random-string}
       JWT_SECRET: ${JWT_SECRET:-change-this-to-another-secure-random-string}
+      SEED_DEFAULT_ADMIN: ${SEED_DEFAULT_ADMIN:-true}
+      DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-Admin}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-D_Admin}
+      DEFAULT_ADMIN_EMAIL: ${DEFAULT_ADMIN_EMAIL:-admin@local}
     ports:
       - "${SERVER_PORT:-4000}:4000"
     volumes:

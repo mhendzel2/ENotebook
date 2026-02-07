@@ -29,7 +29,7 @@ if %ERRORLEVEL% neq 0 (
 docker start enotebook-postgres >nul 2>nul
 
 echo Starting ELN Server...
-start "ELN Server" /min cmd /c "set DB_PROVIDER=postgresql ^& set DATABASE_URL=postgresql://enotebook:enotebook_secure_pwd@localhost:%PG_HOST_PORT%/enotebook?schema=public ^& cd /d %ROOT%apps\server ^&^& npm run dev"
+start "ELN Server" /min cmd /c "cd /d %ROOT%apps\server ^&^& npm run dev"
 
 echo Waiting for server to initialize...
 timeout /t 3 >nul

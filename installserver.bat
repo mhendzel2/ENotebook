@@ -242,17 +242,17 @@ echo.
 
 :: Create admin user
 echo [STEP 7/8] Creating admin user...
-set /p ADMIN_NAME="Enter admin name [Lab Manager]: "
-if "%ADMIN_NAME%"=="" set ADMIN_NAME=Lab Manager
+set /p ADMIN_NAME="Enter admin name [Admin]: "
+if "%ADMIN_NAME%"=="" set ADMIN_NAME=Admin
 
 set /p ADMIN_EMAIL="Enter admin email [admin@lab.local]: "
 if "%ADMIN_EMAIL%"=="" set ADMIN_EMAIL=admin@lab.local
 
-set /p ADMIN_PASSWORD="Enter admin password [changeme]: "
-if "%ADMIN_PASSWORD%"=="" set ADMIN_PASSWORD=changeme
+set /p ADMIN_PASSWORD="Enter admin password [D_Admin]: "
+if "%ADMIN_PASSWORD%"=="" set ADMIN_PASSWORD=D_Admin
 
 cd apps\server
-call npx ts-node -e "const { PrismaClient } = require('@prisma/client'); const bcrypt = require('bcrypt'); const prisma = new PrismaClient(); async function main() { const existing = await prisma.user.findFirst({ where: { role: 'admin' } }); if (!existing) { const name = process.env.ADMIN_NAME || 'Lab Manager'; const email = process.env.ADMIN_EMAIL || 'admin@lab.local'; const password = process.env.ADMIN_PASSWORD || 'changeme'; const passwordHash = await bcrypt.hash(password, 12); await prisma.user.create({ data: { id: 'admin-server', name, email, role: 'admin', passwordHash, active: true } }); console.log('Admin user created successfully.'); } else { console.log('Admin user already exists.'); } } main().catch(console.error).finally(() => prisma.$disconnect());" 2>nul
+call npx ts-node -e "const { PrismaClient } = require('@prisma/client'); const bcrypt = require('bcrypt'); const prisma = new PrismaClient(); async function main() { const existing = await prisma.user.findFirst({ where: { role: 'admin' } }); if (!existing) { const name = process.env.ADMIN_NAME || 'Admin'; const email = process.env.ADMIN_EMAIL || 'admin@lab.local'; const password = process.env.ADMIN_PASSWORD || 'D_Admin'; const passwordHash = await bcrypt.hash(password, 12); await prisma.user.create({ data: { id: 'admin-server', name, email, role: 'admin', passwordHash, active: true } }); console.log('Admin user created successfully.'); } else { console.log('Admin user already exists.'); } } main().catch(console.error).finally(() => prisma.$disconnect());" 2>nul
 cd ..\..
 echo [OK] Admin user configured.
 echo.
