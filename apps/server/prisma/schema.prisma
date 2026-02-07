@@ -74,6 +74,12 @@ model Experiment {
   troubleshootingNotes String? // Separate field for troubleshooting documentation
   resultsSummary      String?
   dataLink            String?
+  primaryDatasetUri   String? // Canonical remote source location for large/raw datasets
+  primaryDatasetType  String? // raw, processed, analysis_bundle
+  primaryDatasetChecksum String?
+  primaryDatasetSizeBytes String? // bytes as string to avoid numeric overflow in clients
+  primaryDatasetVerifiedAt DateTime?
+  primaryDatasetVerifiedBy String?
   tags                String[]
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

@@ -75,6 +75,12 @@ export interface Experiment {
   troubleshootingNotes?: string; // Separate field for troubleshooting documentation
   resultsSummary?: string;
   dataLink?: string;
+  primaryDatasetUri?: string;
+  primaryDatasetType?: 'raw' | 'processed' | 'analysis_bundle';
+  primaryDatasetChecksum?: string;
+  primaryDatasetSizeBytes?: string;
+  primaryDatasetVerifiedAt?: string;
+  primaryDatasetVerifiedBy?: string;
   tags?: string[];
   createdAt: string;
   updatedAt: string;

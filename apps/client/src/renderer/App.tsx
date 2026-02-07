@@ -12,6 +12,16 @@ type AuthState = 'login' | 'register' | 'authenticated';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000';
 
+function isLikelyDatasetLocation(value: string): boolean {
+  const location = value.trim();
+  if (!location) return false;
+  if (/^(https?:\/\/|s3:\/\/|smb:\/\/)/i.test(location)) return true;
+  if (location.startsWith('\\\\') || location.startsWith('//')) return true;
+  if (/^[a-zA-Z]:\\/.test(location)) return true;
+  if (location.startsWith('/')) return true;
+  return false;
+}
+
 function App() {
   const [authState, setAuthState] = useState<AuthState>('login');
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -566,13 +576,28 @@ function ExperimentsPanel({ experiments, methods, onRefresh, user }: {
           )}
           {selectedExperiment.dataLink && (
             <>
-              <h4>Original Data Path(s):</h4>
+              <h4>Additional Data Path(s):</h4>
               <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
                 {selectedExperiment.dataLink.split('\n').map((path, idx) => (
                   <div key={idx} style={{ padding: '4px 0', fontFamily: 'monospace', fontSize: '13px', color: '#334155' }}>
                     📁 {path.trim()}
                   </div>
                 ))}
+              </div>
+            </>
+          )}
+          {selectedExperiment.primaryDatasetUri && (
+            <>
+              <h4>Primary Dataset (Remote Source)</h4>
+              <div style={{ background: '#ecfeff', padding: '12px', borderRadius: '6px', border: '1px solid #a5f3fc' }}>
+                <p style={{ margin: '0 0 8px 0', fontFamily: 'monospace', fontSize: '13px', color: '#0f172a' }}>
+                  {selectedExperiment.primaryDatasetUri}
+                </p>
+                <p style={{ margin: '0', fontSize: '12px', color: '#334155' }}>
+                  Type: {(selectedExperiment.primaryDatasetType || 'unspecified').replace('_', ' ')}
+                  {selectedExperiment.primaryDatasetChecksum ? ` | Checksum: ${selectedExperiment.primaryDatasetChecksum}` : ''}
+                  {selectedExperiment.primaryDatasetSizeBytes ? ` | Size (bytes): ${selectedExperiment.primaryDatasetSizeBytes}` : ''}
+                </p>
               </div>
             </>
           )}
@@ -669,6 +694,10 @@ function ExperimentForm({ user, methods, onClose, onSaved }: {
   const [protocolRef, setProtocolRef] = useState('');
   const [observations, setObservations] = useState('');
   const [troubleshootingNotes, setTroubleshootingNotes] = useState('');
+  const [primaryDatasetUri, setPrimaryDatasetUri] = useState('');
+  const [primaryDatasetType, setPrimaryDatasetType] = useState('');
+  const [primaryDatasetChecksum, setPrimaryDatasetChecksum] = useState('');
+  const [primaryDatasetSizeBytes, setPrimaryDatasetSizeBytes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -678,6 +707,13 @@ function ExperimentForm({ user, methods, onClose, onSaved }: {
     setSaving(true);
 
     try {
+      if (primaryDatasetUri.trim() && !isLikelyDatasetLocation(primaryDatasetUri)) {
+        throw new Error('Primary dataset location must be a valid path/URI');
+      }
+      if (primaryDatasetUri.trim() && !primaryDatasetType) {
+        throw new Error('Select a primary dataset type when providing a primary dataset location');
+      }
+
       const response = await fetch(`${API_BASE}/experiments`, {
         method: 'POST',
         headers: {
@@ -692,6 +728,10 @@ function ExperimentForm({ user, methods, onClose, onSaved }: {
           protocolRef: protocolRef || null,
           observations: { text: observations },
           troubleshootingNotes: troubleshootingNotes || null,
+          primaryDatasetUri: primaryDatasetUri.trim() || undefined,
+          primaryDatasetType: primaryDatasetType || undefined,
+          primaryDatasetChecksum: primaryDatasetChecksum.trim() || undefined,
+          primaryDatasetSizeBytes: primaryDatasetSizeBytes.trim() || undefined,
           tags: [],
         }),
       });
@@ -801,6 +841,54 @@ function ExperimentForm({ user, methods, onClose, onSaved }: {
               Use this section to document problems encountered and how they were resolved.
             </p>
           </div>
+          <div style={styles.formField}>
+            <label style={styles.formLabel}>Primary Dataset Location (Remote)</label>
+            <input
+              type="text"
+              value={primaryDatasetUri}
+              onChange={e => setPrimaryDatasetUri(e.target.value)}
+              style={styles.formInput}
+              placeholder="\\\\lab-server\\assays\\2026-02-07\\run_001 or s3://bucket/path"
+            />
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#64748b' }}>
+              Large/raw datasets remain in remote storage. Store only the canonical location here.
+            </p>
+          </div>
+          <div style={styles.formRow}>
+            <div style={styles.formField}>
+              <label style={styles.formLabel}>Primary Dataset Type</label>
+              <select
+                value={primaryDatasetType}
+                onChange={e => setPrimaryDatasetType(e.target.value)}
+                style={styles.formSelect}
+              >
+                <option value="">Select type (optional)</option>
+                <option value="raw">Raw</option>
+                <option value="processed">Processed</option>
+                <option value="analysis_bundle">Analysis Bundle</option>
+              </select>
+            </div>
+            <div style={styles.formField}>
+              <label style={styles.formLabel}>Checksum (optional)</label>
+              <input
+                type="text"
+                value={primaryDatasetChecksum}
+                onChange={e => setPrimaryDatasetChecksum(e.target.value)}
+                style={styles.formInput}
+                placeholder="SHA256 / MD5 / other"
+              />
+            </div>
+          </div>
+          <div style={styles.formField}>
+            <label style={styles.formLabel}>Dataset Size (bytes, optional)</label>
+            <input
+              type="text"
+              value={primaryDatasetSizeBytes}
+              onChange={e => setPrimaryDatasetSizeBytes(e.target.value)}
+              style={styles.formInput}
+              placeholder="e.g., 18453290123"
+            />
+          </div>
           <div style={styles.formActions}>
             <button type="button" onClick={onClose} style={styles.secondaryButton}>Cancel</button>
             <button type="submit" style={styles.primaryButton} disabled={saving}>
@@ -837,6 +925,10 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
   const [troubleshootingNotes, setTroubleshootingNotes] = useState((experiment as any).troubleshootingNotes || '');
   const [resultsSummary, setResultsSummary] = useState(experiment.resultsSummary || '');
   const [dataLink, setDataLink] = useState(experiment.dataLink || '');
+  const [primaryDatasetUri, setPrimaryDatasetUri] = useState((experiment as any).primaryDatasetUri || '');
+  const [primaryDatasetType, setPrimaryDatasetType] = useState((experiment as any).primaryDatasetType || '');
+  const [primaryDatasetChecksum, setPrimaryDatasetChecksum] = useState((experiment as any).primaryDatasetChecksum || '');
+  const [primaryDatasetSizeBytes, setPrimaryDatasetSizeBytes] = useState((experiment as any).primaryDatasetSizeBytes || '');
   const [status, setStatus] = useState<string>(experiment.status || 'draft');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -851,6 +943,19 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
     setError(null);
 
     try {
+      if (primaryDatasetUri.trim() && !isLikelyDatasetLocation(primaryDatasetUri)) {
+        throw new Error('Primary dataset location must be a valid path/URI');
+      }
+      if ((status === 'completed' || status === 'signed') && !primaryDatasetUri.trim()) {
+        throw new Error('Primary dataset location is required before marking an experiment as completed');
+      }
+      if ((status === 'completed' || status === 'signed') && !primaryDatasetType) {
+        throw new Error('Primary dataset type is required before marking an experiment as completed');
+      }
+      if (primaryDatasetUri.trim() && !primaryDatasetType) {
+        throw new Error('Select a primary dataset type when providing a primary dataset location');
+      }
+
       const response = await fetch(`${API_BASE}/experiments/${experiment.id}`, {
         method: 'PATCH',
         headers: {
@@ -867,6 +972,10 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
           troubleshootingNotes: troubleshootingNotes || null,
           resultsSummary: resultsSummary || null,
           dataLink: dataLink || null,
+          primaryDatasetUri: primaryDatasetUri.trim() || undefined,
+          primaryDatasetType: primaryDatasetType || undefined,
+          primaryDatasetChecksum: primaryDatasetChecksum.trim() || undefined,
+          primaryDatasetSizeBytes: primaryDatasetSizeBytes.trim() || undefined,
           status,
         }),
       });
@@ -1007,6 +1116,7 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
                   <option value="draft">Draft</option>
                   <option value="in_progress">In Progress</option>
                   <option value="completed">Completed</option>
+                  <option value="signed">Signed</option>
                 </select>
               </div>
             </div>
@@ -1055,6 +1165,54 @@ function ExperimentEditForm({ user, methods, experiment, onClose, onSaved }: {
               <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#64748b' }}>
                 Enter paths to raw data files, network shares, or URLs. Use one path per line for multiple locations.
               </p>
+            </div>
+            <div style={styles.formField}>
+              <label style={styles.formLabel}>Primary Dataset Location (Remote) *</label>
+              <input
+                type="text"
+                value={primaryDatasetUri}
+                onChange={e => setPrimaryDatasetUri(e.target.value)}
+                style={styles.formInput}
+                placeholder="\\\\lab-server\\assays\\2026-02-07\\run_001 or s3://bucket/path"
+              />
+              <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#64748b' }}>
+                Required for completed/signed records. Use the canonical location of the large/original dataset.
+              </p>
+            </div>
+            <div style={styles.formRow}>
+              <div style={styles.formField}>
+                <label style={styles.formLabel}>Primary Dataset Type *</label>
+                <select
+                  value={primaryDatasetType}
+                  onChange={e => setPrimaryDatasetType(e.target.value)}
+                  style={styles.formSelect}
+                >
+                  <option value="">Select type</option>
+                  <option value="raw">Raw</option>
+                  <option value="processed">Processed</option>
+                  <option value="analysis_bundle">Analysis Bundle</option>
+                </select>
+              </div>
+              <div style={styles.formField}>
+                <label style={styles.formLabel}>Checksum (optional)</label>
+                <input
+                  type="text"
+                  value={primaryDatasetChecksum}
+                  onChange={e => setPrimaryDatasetChecksum(e.target.value)}
+                  style={styles.formInput}
+                  placeholder="SHA256 / MD5 / other"
+                />
+              </div>
+            </div>
+            <div style={styles.formField}>
+              <label style={styles.formLabel}>Dataset Size (bytes, optional)</label>
+              <input
+                type="text"
+                value={primaryDatasetSizeBytes}
+                onChange={e => setPrimaryDatasetSizeBytes(e.target.value)}
+                style={styles.formInput}
+                placeholder="e.g., 18453290123"
+              />
             </div>
             <div style={styles.formActions}>
               <button type="button" onClick={onClose} style={styles.secondaryButton}>Cancel</button>

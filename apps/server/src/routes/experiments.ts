@@ -23,6 +23,7 @@ import {
 const modalityEnum = z.enum(MODALITIES as unknown as [string, ...string[]]);
 const experimentStatusEnum = z.enum(EXPERIMENT_STATUSES as unknown as [string, ...string[]]);
 const signatureTypeEnum = z.enum(SIGNATURE_TYPES as unknown as [string, ...string[]]);
+const primaryDatasetTypeEnum = z.enum(['raw', 'processed', 'analysis_bundle']);
 
 export const experimentSchema = z.object({
   title: z.string().min(1),
@@ -35,6 +36,12 @@ export const experimentSchema = z.object({
   troubleshootingNotes: z.string().optional(), // Separate field for troubleshooting documentation
   resultsSummary: z.string().optional(),
   dataLink: z.string().optional(),
+  primaryDatasetUri: z.string().max(2048).optional(),
+  primaryDatasetType: primaryDatasetTypeEnum.optional(),
+  primaryDatasetChecksum: z.string().max(256).optional(),
+  primaryDatasetSizeBytes: z.string().max(40).optional(),
+  primaryDatasetVerifiedAt: z.string().datetime().optional(),
+  primaryDatasetVerifiedBy: z.string().uuid().optional(),
   tags: z.array(z.string()).optional(),
   status: experimentStatusEnum.default('draft')
 });
@@ -66,6 +73,39 @@ function safeSingleLineSnippet(text: string, maxLen: number): string {
 
 function canAccessExperiment(user: User, experiment: { userId: string }): boolean {
   return user.role === 'manager' || user.role === 'admin' || experiment.userId === user.id;
+}
+
+function isLikelyDatasetLocation(value: string): boolean {
+  const location = value.trim();
+  if (!location) return false;
+  if (/^(https?:\/\/|s3:\/\/|smb:\/\/)/i.test(location)) return true;
+  if (location.startsWith('\\\\') || location.startsWith('//')) return true;
+  if (/^[a-zA-Z]:\\/.test(location)) return true;
+  if (location.startsWith('/')) return true;
+  return false;
+}
+
+function enforcePrimaryDatasetPolicy(params: {
+  status: string;
+  primaryDatasetUri?: string | null;
+  primaryDatasetType?: string | null;
+}) {
+  const status = params.status;
+  const primaryDatasetUri = params.primaryDatasetUri?.trim() || '';
+  const primaryDatasetType = params.primaryDatasetType?.trim() || '';
+
+  if (primaryDatasetUri && !isLikelyDatasetLocation(primaryDatasetUri)) {
+    throw new ValidationError('primaryDatasetUri must be a valid remote dataset path/URI');
+  }
+
+  if (status === 'completed' || status === 'signed') {
+    if (!primaryDatasetUri) {
+      throw new ValidationError('primaryDatasetUri is required before an experiment can be completed or signed');
+    }
+    if (!primaryDatasetType) {
+      throw new ValidationError('primaryDatasetType is required before an experiment can be completed or signed');
+    }
+  }
 }
 
 // ==================== ROUTE FACTORY ====================
@@ -273,12 +313,19 @@ export function createExperimentsRoutes(
       throw new ValidationError('Invalid experiment data', parse.error.flatten());
     }
 
-    const { tags, modality, ...rest } = parse.data;
+    enforcePrimaryDatasetPolicy({
+      status: parse.data.status,
+      primaryDatasetUri: parse.data.primaryDatasetUri,
+      primaryDatasetType: parse.data.primaryDatasetType,
+    });
+
+    const { tags, modality, primaryDatasetVerifiedAt, ...rest } = parse.data;
     const experiment = await prisma.experiment.create({
       data: {
         userId: user.id,
         version: 1,
         modality: modality as any, // Type assertion for Prisma enum
+        ...(primaryDatasetVerifiedAt ? { primaryDatasetVerifiedAt: new Date(primaryDatasetVerifiedAt) } : {}),
         ...rest,
         tags: tags || []
       }
@@ -308,11 +355,24 @@ export function createExperimentsRoutes(
       throw new ForbiddenError('Not authorized to edit this experiment');
     }
 
-    const { params, observations, tags, ...rest } = parse.data;
+    const effectiveStatus = parse.data.status ?? existing.status;
+    const effectivePrimaryDatasetUri = parse.data.primaryDatasetUri ?? existing.primaryDatasetUri;
+    const effectivePrimaryDatasetType = parse.data.primaryDatasetType ?? existing.primaryDatasetType;
+
+    enforcePrimaryDatasetPolicy({
+      status: effectiveStatus,
+      primaryDatasetUri: effectivePrimaryDatasetUri,
+      primaryDatasetType: effectivePrimaryDatasetType,
+    });
+
+    const { params, observations, tags, primaryDatasetVerifiedAt, ...rest } = parse.data;
     const updateData: any = { ...rest };
     if (params !== undefined) updateData.params = params;
     if (observations !== undefined) updateData.observations = observations;
     if (tags !== undefined) updateData.tags = tags;
+    if (primaryDatasetVerifiedAt !== undefined) {
+      updateData.primaryDatasetVerifiedAt = primaryDatasetVerifiedAt ? new Date(primaryDatasetVerifiedAt) : null;
+    }
     updateData.version = (existing.version || 1) + 1;
 
     const updated = await prisma.experiment.update({ where: { id: experimentId }, data: updateData });
