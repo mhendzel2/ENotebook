@@ -8,7 +8,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: enotebook-postgres
-    restart: unless-stopped
+    restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-enotebook}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-enotebook_secret}
@@ -16,7 +16,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-enotebook} -d ${POSTGRES_DB:-enotebook}"]
       interval: 10s
@@ -33,7 +33,7 @@ services:
       context: .
       dockerfile: apps/server/Dockerfile
     container_name: enotebook-server
-    restart: unless-stopped
+    restart: always
     depends_on:
       postgres:
         condition: service_healthy
@@ -44,16 +44,17 @@ services:
       # Server configuration
       PORT: 4000
       NODE_ENV: ${NODE_ENV:-production}
+      LISTEN_HOST: ${LISTEN_HOST:-0.0.0.0}
       
       # CORS - adjust for your deployment
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
       
-      # Session/JWT secrets (generate secure values for production!)
-      SESSION_SECRET: ${SESSION_SECRET:-change-this-to-a-secure-random-string}
-      JWT_SECRET: ${JWT_SECRET:-change-this-to-another-secure-random-string}
+      # Session/JWT secrets — MUST be set to unique random values; see .env.docker.example
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set in .env}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
       SEED_DEFAULT_ADMIN: ${SEED_DEFAULT_ADMIN:-true}
       DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-Admin}
-      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-D_Admin}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-ChangeMe!LocalAdmin2025}
       DEFAULT_ADMIN_EMAIL: ${DEFAULT_ADMIN_EMAIL:-admin@local}
     ports:
       - "${SERVER_PORT:-4000}:4000"
@@ -63,8 +64,9 @@ services:
       - server_imports:/app/apps/server/data/imports
       - server_reports:/app/apps/server/data/reports
       - server_sync:/app/apps/server/data/sync
+      - server_logs:/app/apps/server/logs
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4000/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4000/readyz"]
       interval: 30s
       timeout: 10s
       start_period: 30s
@@ -85,6 +87,8 @@ volumes:
   server_reports:
     driver: local
   server_sync:
+    driver: local
+  server_logs:
     driver: local
 
 # ============================================

@@ -1,0 +1,28 @@
+# docker-compose.override.yml.example
+#
+# !! WARNING: This file is for LOCAL DEVELOPMENT only.
+# !! NEVER use these overrides in production.
+#
+# Usage:
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#   # Edit the file to match your local environment, then:
+#   docker compose up -d
+#
+# docker-compose.override.yml is automatically merged by Docker Compose.
+
+services:
+  server:
+    environment:
+      # Allow your local machine hostname/IP in addition to localhost
+      # Replace with your machine's LAN IP address, e.g. 192.168.1.100
+      CORS_ORIGINS: "http://localhost:5173,http://localhost:3000,http://192.168.1.100:5173"
+      NODE_ENV: development
+    # Mount source code for live reload (requires tsx in PATH)
+    # volumes:
+    #   - ./apps/server/src:/app/apps/server/src
+
+  postgres:
+    ports:
+      # Expose PostgreSQL to localhost for local DB tools (e.g. pgAdmin, DBeaver)
+      # !! Do not expose this port in production
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
