@@ -21,8 +21,82 @@ Offline-first desktop ELN with PostgreSQL (Docker-first local setup) and sync su
 ## Local default admin
 - On first run (empty DB), the server seeds a default admin account unless disabled:
   - Username: `Admin`
-  - Password: `D_Admin`
+  - Password: `ChangeMe!LocalAdmin2025` (change on first login!)
 - Configure via `SEED_DEFAULT_ADMIN`, `DEFAULT_ADMIN_USERNAME`, `DEFAULT_ADMIN_PASSWORD`, `DEFAULT_ADMIN_EMAIL`.
+
+## Local Lab PC Server Deployment
+
+This section covers deploying ENotebook as a persistent server on a Windows lab PC using Docker.
+
+### Prerequisites
+
+- **Docker Desktop for Windows** (Windows 10/11 Home or Pro) — [download](https://www.docker.com/products/docker-desktop/)
+- **Docker Engine** (Windows Server) — follow the [official guide](https://docs.docker.com/engine/install/)
+- `openssl` available (included with Git for Windows, or WSL)
+
+### Step-by-step deployment
+
+1. **Clone the repository**
+
+   ```bat
+   git clone https://github.com/mhendzel2/ENotebook.git
+   cd ENotebook
+   ```
+
+2. **Create and configure your environment file**
+
+   ```bat
+   copy .env.docker.example .env
+   ```
+
+   Open `.env` and replace every `REPLACE_WITH_OUTPUT_OF_openssl_rand_base64_32` with unique values:
+
+   ```bash
+   openssl rand -base64 32   # run twice — once for SESSION_SECRET, once for JWT_SECRET
+   ```
+
+   Also set a strong `DEFAULT_ADMIN_PASSWORD` (minimum 12 characters, mixed case + number + symbol).
+
+3. **Start the stack**
+
+   ```bat
+   docker compose up -d
+   ```
+
+   On first start, Prisma migrations are applied automatically via the entrypoint script.
+
+4. **Access the web UI**
+
+   Open `http://localhost:4000` (or your server's LAN IP) in a browser.
+   Log in with the admin credentials from your `.env` and **change the password immediately**.
+
+5. **Verify health**
+
+   ```bash
+   curl http://localhost:4000/readyz
+   # Expected: {"status":"ok","db":"ok"}
+   ```
+
+6. **(Optional) Bind to a specific network interface**
+
+   Set `LISTEN_HOST=192.168.1.100` in `.env` to restrict the server to one LAN interface
+   (e.g. wired Ethernet only, ignoring WiFi).
+
+7. **(Optional) Local dev overrides**
+
+   ```bat
+   copy docker-compose.override.yml.example docker-compose.override.yml
+   ```
+
+   Edit `docker-compose.override.yml` to suit your dev environment (see file for details).
+   **Never commit this file or use it in production.**
+
+### Security notes
+
+- `SESSION_SECRET` and `JWT_SECRET` **must** be set to unique random values — the server refuses to start otherwise.
+- The PostgreSQL port is bound to `127.0.0.1` only, so the database is never exposed on the LAN.
+- Keep your `.env` file out of version control (it is already in `.gitignore`).
+
 
 ## Notes
 - Prisma schema lives in `apps/server/prisma/schema.prisma`; run `npx prisma migrate dev` after configuring env.

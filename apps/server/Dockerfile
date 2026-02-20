@@ -79,12 +79,17 @@ COPY --from=builder /app/apps/server/node_modules/.prisma ./apps/server/node_mod
 # Copy Prisma schema for migrations
 COPY apps/server/prisma ./apps/server/prisma
 
+# Copy entrypoint script
+COPY apps/server/docker-entrypoint.sh ./apps/server/docker-entrypoint.sh
+RUN chmod +x /app/apps/server/docker-entrypoint.sh
+
 # Create data directories
 RUN mkdir -p /app/apps/server/data/attachments \
     /app/apps/server/data/imports \
     /app/apps/server/data/inventory_attachments \
     /app/apps/server/data/reports \
-    /app/apps/server/data/sync
+    /app/apps/server/data/sync \
+    /app/apps/server/logs
 
 WORKDIR /app/apps/server
 
@@ -93,7 +98,7 @@ EXPOSE 4000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:4000/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:4000/readyz || exit 1
 
-# Start the server
-CMD ["node", "dist/index.js"]
+# Start the server via entrypoint
+CMD ["/app/apps/server/docker-entrypoint.sh"]

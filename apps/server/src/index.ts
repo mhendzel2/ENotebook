@@ -4,6 +4,9 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import crypto from 'crypto';
 import http from 'http';
+import path from 'path';
+import fs from 'fs';
+import { createStream } from 'rotating-file-stream';
 import { PrismaClient } from '@prisma/client';
 import type { User } from '@eln/shared/dist/types.js';
 import { createApiKeyRoutes, apiKeyAuth, requirePermission as apiKeyRequirePermission } from './middleware/apiKey.js';
@@ -34,6 +37,25 @@ import { createAuditLogRoutes } from './routes/auditLog.js';
 import { createInventoryRoutes } from './routes/inventory.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 import { ensureDefaultAdminUser } from './bootstrap/defaultAdmin.js';
+
+// Refuse to start if secrets are still set to known placeholder values
+const KNOWN_PLACEHOLDER_SECRETS = [
+  'change-this-to-a-secure-random-string',
+  'change-this-to-another-secure-random-string',
+  'generate-a-secure-random-string-here',
+  'generate-another-secure-random-string-here',
+  'REPLACE_WITH_SESSION_SECRET_openssl_rand_base64_32',
+  'REPLACE_WITH_JWT_SECRET_openssl_rand_base64_32',
+];
+function assertSecretNotPlaceholder(name: string, value: string | undefined) {
+  if (!value || KNOWN_PLACEHOLDER_SECRETS.includes(value)) {
+    console.error(`FATAL: ${name} is not set or is still using a placeholder value. Set a secure random secret before starting.`);
+    process.exit(1);
+  }
+}
+assertSecretNotPlaceholder('SESSION_SECRET', process.env.SESSION_SECRET);
+// AUTH_JWT_SECRET is the legacy name documented in the README; JWT_SECRET is preferred
+assertSecretNotPlaceholder('JWT_SECRET', process.env.JWT_SECRET ?? process.env.AUTH_JWT_SECRET);
 
 const prisma = new PrismaClient();
 
@@ -74,7 +96,20 @@ app.use(cors({
   credentials: true,
 }));
 app.use(helmet());
-app.use(morgan('dev'));
+
+// Morgan logging: console in dev, combined format to rotating file in all modes
+const logsDir = path.join(process.cwd(), 'logs');
+fs.mkdirSync(logsDir, { recursive: true });
+const accessLogStream = createStream('access.log', {
+  interval: '7d',
+  path: logsDir,
+});
+app.use(morgan('combined', { stream: accessLogStream }));
+if (process.env.NODE_ENV !== 'production') {
+  app.use(morgan('dev'));
+} else {
+  app.use(morgan('combined'));
+}
 
 // Auth context: API keys and signed sessions
 app.use(apiKeyAuth(prisma));
@@ -85,6 +120,15 @@ app.use(createAuthRoutes(prisma, auditService));
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString(), websocket: true });
+});
+
+app.get('/readyz', async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: 'ok', db: 'ok' });
+  } catch {
+    res.status(503).json({ status: 'error', db: 'unreachable' });
+  }
 });
 
 // ==================== API KEY MANAGEMENT ====================
@@ -171,11 +215,12 @@ app.use(errorHandler);
 
 async function start() {
   const port = process.env.PORT || 4000;
+  const host = process.env.LISTEN_HOST || '0.0.0.0';
   await ensureDefaultAdminUser(prisma);
 
-  server.listen(port, () => {
+  server.listen(Number(port), host, () => {
     // eslint-disable-next-line no-console
-    console.log(`ELN server listening on http://localhost:${port}`);
+    console.log(`ELN server listening on http://${host}:${port}`);
     console.log('WebSocket server ready for real-time collaboration');
   });
 }
@@ -918,22 +963,12 @@ app.get('/sync/pull', async (_req, res) => {
   }
 });
 
-const port = process.env.PORT || 4000;
-server.listen(port, () => {
-  // eslint-disable-next-line no-console
-  console.log(`ELN server listening on http://localhost:${port}`);
-  console.log(`WebSocket server ready for real-time collaboration`);
-});
-
 // Small helper for role checks if needed later.
 function requireRole(user: User, roles: Role[]) {
   if (!roles.includes(user.role)) {
     throw new Error('forbidden');
   }
 }
-
-// Export collaboration manager for use in routes
-export { collaboration };
 // ==================== INVENTORY MANAGEMENT ====================
 
 const locationSchema = z.object({
